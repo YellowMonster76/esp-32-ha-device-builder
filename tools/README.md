@@ -27,10 +27,34 @@ The commands below use `esphome` and `python`. Either activate the venv
 
 | Tool | What it's for |
 |---|---|
+| [`flatten.py`](flatten.py) | Build the paste-ready single files in `single-file/` from the device files |
 | [`serial_log.py`](serial_log.py) | Read a board's USB log, filtered, **without resetting it** |
 | [`compare_configs.py`](compare_configs.py) | Prove two configs merge to the same thing (after a refactor) |
 | [`touch-calibration/`](touch-calibration/) | Firmware + calculator to calibrate a resistive touch panel |
 | [`demo/`](demo/) | Run a project on a bare board with fake data: no Wi-Fi or HA |
+
+## flatten.py
+
+```bash
+python tools/flatten.py              # all device files -> single-file/
+python tools/flatten.py --check      # exit 1 if single-file/ is out of date
+```
+
+Merges each device file's packages (base, board, project) and its own
+settings into one file, **as text, so comments are kept**. It follows
+ESPHome's package rules: later settings win, `!extend` items fold into the
+item they extend, and overridden values are marked "set in <file>". If it
+meets something it can't merge cleanly, it stops with an error rather than
+guessing.
+
+Always confirm the result:
+
+```bash
+python tools/compare_configs.py cyd-bus-display.yaml single-file/cyd-bus-display.yaml
+```
+
+`single-file/` needs a `secrets.yaml` beside the files for that check (dummy
+values are fine; it's git-ignored).
 
 ## serial_log.py
 

@@ -1,0 +1,921 @@
+# =============================================================================
+#  GENERATED single-file version of cyd-bus-display.yaml.
+#  Paste the whole file into ESPHome Device Builder. Don't edit it here:
+#  edit the source files, then run `python tools/flatten.py`.
+#
+#  Built from:
+#    common/base.yaml
+#    boards/cyd-2432s028.yaml
+#    projects/bus-display/bus-display.yaml
+#    cyd-bus-display.yaml
+#
+#  Secrets it needs in Device Builder's secrets.yaml:
+#    cyd_bus_api_key
+#    cyd_bus_fallback_password
+#    wifi_password
+#    wifi_ssid
+# =============================================================================
+
+# =============================================================================
+#  Device: CYD Bus Display (desk)
+#  Board:   boards/cyd-2432s028.yaml   (twin-USB ST7789V unit, MAC 48:9d:31:74:77:7d (last 3 bytes randomised))
+#  Project: projects/bus-display       (High Street only)
+# =============================================================================
+
+
+# =============================================================================
+#  Shared by every device: identity, logging, OTA, Wi-Fi.
+#
+#  The device file must provide:
+#    substitutions: name, friendly_name
+#    api:  encryption: key: !secret <device>_api_key
+#    wifi: ap: ssid / password (the fallback hotspot)
+#  Those stay in the device file because they're per-unit, and !secret can't
+#  be driven by a substitution.
+# =============================================================================
+
+substitutions:
+  # --- from common/base.yaml ---
+  # C++ expression projects use for "is Home Assistant connected?". Demo builds
+  # (tools/demo) override it to fake a connection without HA.
+  ha_connected: "(api::global_api_server != nullptr && api::global_api_server->is_connected_with_state_subscription())"
+
+  # --- from boards/cyd-2432s028.yaml ---
+  # ---- WHICH BOARD REVISION? ----------------------------------------------
+  #   ESP32-2432S028       single micro-USB board (ILI9341)
+  #   ESP32-2432S028-7789  USB-C + micro-USB board with ST7789V
+  #   ESP32-2432S028-9342  USB-C + micro-USB board with ILI9342
+  # The preset sets the controller, CS=GPIO15, DC=GPIO2 and 40 MHz SPI.
+  display_model: ESP32-2432S028-7789
+
+  # ---- Touch calibration (raw XPT2046 readings at the screen edges) --------
+  # Typical values. Measure each unit if it has touch targets: see
+  # cyd-2432s028.md, "Calibrating touch".
+  touch_x_min: "280"
+  touch_x_max: "3860"
+  touch_y_min: "340"
+  touch_y_max: "3860"
+
+  # --- from projects/bus-display/bus-display.yaml ---
+  # ---- Lateness thresholds (minutes, from the `delay` attribute) ------------
+  # delay <= early_warn      -> amber "N min early" (you could miss it)
+  # early_warn < delay < late_amber -> green "On time"
+  # late_amber <= delay < late_red  -> amber "N min late"
+  # delay >= late_red        -> red   "N min late"
+  early_warn: "-2"
+  late_amber: "2"
+  late_red: "6"
+
+  # A departure more than this many minutes in the past is treated as stale
+  # data (HA should have replaced it by then). More than `gone_after` minutes
+  # in the past, it's treated as "no departure" (e.g. overnight).
+  overdue_after: "2"
+  gone_after: "30"
+
+  # ---- Auto-brightness (follows the sun, from HA's sun.sun) -----------------
+  # Sun elevation between these two angles maps linearly onto brightness.
+  # (Not the LDR: tested on this board, it can't tell a lit room from a dark
+  # one. See the LDR sensor below.)
+  sun_day_deg: "4"       # sun at/above this: full brightness
+  sun_night_deg: "-6"    # sun at/below this (end of civil dusk): minimum
+  bl_min: "0.35"         # dimmest the backlight goes (0-1). 0 = off.
+  bl_max: "1.0"          # brightest it goes (0-1)
+  touch_boost_s: "30s"   # tap the screen: full brightness for this long
+
+  # --- from cyd-bus-display.yaml ---
+  name: cyd-bus-display
+  friendly_name: CYD Bus Display
+  # Touch here is "tap anywhere", so this unit was never calibrated; the
+  # board's typical values are used.
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+  # (from projects/bus-display/bus-display.yaml)
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: refresh
+
+logger:
+  level: INFO
+
+# OTA uploads are encrypted and authenticated with the device's API key (an
+# empty `encryption:` block means "use the api key"), so no OTA password.
+ota:
+  - platform: esphome
+    encryption: {}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # If Wi-Fi fails, the device starts its own hotspot (ssid/password set in the
+  # device file). Join it and browse to 192.168.4.1 to enter new Wi-Fi details.
+
+  # (from cyd-bus-display.yaml)
+  ap:
+    ssid: "CYD Bus Fallback"
+    password: !secret cyd_bus_fallback_password
+
+captive_portal:
+
+
+# =============================================================================
+#  Board: ESP32-2432S028R "Cheap Yellow Display" (CYD)
+#  ESP32-WROOM-32 (4 MB flash, no PSRAM), 2.8" 320x240 SPI display,
+#  XPT2046 resistive touch on its own SPI bus, backlight on GPIO21, RGB LED.
+#  Notes, pinout and quirks: cyd-2432s028.md
+#
+#  IDs other files can use:
+#    tft (display), touch (touchscreen), backlight (light), rgb_led (light),
+#    tft_spi / touch_spi (spi), backlight_pwm, led_r/g/b (outputs)
+#
+#  Per-device settings (override in the device file's substitutions):
+#    display_model   which board revision, see below
+#    touch_x_min / touch_x_max / touch_y_min / touch_y_max   calibration
+#
+#  Landscape layout assumes LVGL `rotation: 90` (USB sockets on the right).
+# =============================================================================
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# The CYD has TWO SPI buses: one for the display, a separate one for touch.
+spi:
+  - id: tft_spi            # display
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+  - id: touch_spi          # XPT2046 touch controller
+    clk_pin: GPIO25
+    mosi_pin: GPIO32
+    miso_pin: GPIO39       # GPIO39 is input-only, fine for MISO
+
+display:
+  - platform: mipi_spi
+    id: tft
+    model: ${display_model}
+    spi_id: tft_spi
+    # LVGL does the drawing, so the display needs no update loop of its own.
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: touch_spi
+    cs_pin: GPIO33
+    interrupt_pin:         # touch IRQ. GPIO36 is input-only with no internal
+      number: GPIO36       # pull-up; the board has an external one.
+      mode: input
+    # With the USB sockets on the right: raw X runs top->bottom, raw Y runs
+    # left->right.
+    calibration:
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
+    # Needed with LVGL rotation 90, otherwise taps on the top row land on the
+    # bottom row and vice versa. (Found on the twin-USB ST7789V revision.)
+    transform:
+      mirror_x: true
+    # Touch: one purpose only. Tapping anywhere turns the backlight to full for
+    # ${touch_boost_s}. Because it's "tap anywhere", calibration hardly matters.
+    # (from projects/bus-display/bus-display.yaml)
+    on_touch:
+      - script.execute: touch_boost
+
+output:
+  # Backlight, PWM so it can dim.
+  - platform: ledc
+    pin: GPIO21
+    id: backlight_pwm
+    frequency: 5000Hz
+  # RGB LED on the back: active LOW (pin low = LED on), hence inverted.
+  - platform: ledc
+    pin: GPIO4
+    id: led_r
+    inverted: true
+  - platform: ledc
+    pin: GPIO16
+    id: led_g
+    inverted: true
+  - platform: ledc
+    pin: GPIO17
+    id: led_b
+    inverted: true
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    # Always on at boot. (Restoring the last state could bring the screen back
+    # dark if it was off when unplugged.)
+    restore_mode: ALWAYS_ON
+    default_transition_length: 1s
+    # Linear: "8%" really is 8% PWM duty. With gamma 2.2, 8% became ~0.4%
+    # duty and the screen looked switched off.
+    gamma_correct: 1.0
+
+  # The RGB LED is very bright. Off at boot and nothing on the device turns it
+  # on; it's exposed to HA in case you want to automate it.
+  - platform: rgb
+    id: rgb_led
+    name: Status LED
+    red: led_r
+    green: led_g
+    blue: led_b
+    restore_mode: ALWAYS_OFF
+
+
+# =============================================================================
+#  Project: bus display
+#  Next departure from one bus stop, pushed from Home Assistant.
+#  Needs: a 320x240 landscape LVGL display (`tft`), touchscreen `touch`,
+#  light `backlight`. See README.md for the HA entities it reads.
+#
+#  Screen (landscape, 320x240):
+#    +--------------------------------------------+
+#    | HIGH STREET              [STALE] ● 19:42    |  header: status + clock
+#    |                          +--------+        |
+#    |   17                     |   S9   |        |  big number = minutes to go
+#    |  min                     +--------+        |
+#    |                            19:59           |  expected departure time
+#    |                          [ On time ]       |  lateness chip (colour coded)
+#    | to Wantage                                 |
+#    | Then 20:29 S9                  LAST BUS    |  following bus / last bus
+#    +--------------------------------------------+
+#
+#  Timetable-only departures (live: off) show "~17" in grey, with the time
+#  in grey and a grey "Timetable" chip, so they never look like tracked data.
+# =============================================================================
+
+api:
+  on_client_connected:
+    - script.execute: refresh
+  on_client_disconnected:
+    - script.execute: refresh
+
+  # (from cyd-bus-display.yaml)
+  encryption:
+    key: !secret cyd_bus_api_key
+
+# Clock comes from HA. Timezone is set explicitly so countdowns are right
+# even before HA has sent its timezone.
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: Europe/London
+
+sensor:
+  # Sun elevation from HA drives auto-brightness.
+  - platform: homeassistant
+    id: sun_elevation
+    entity_id: sun.sun
+    attribute: elevation
+    internal: true
+    on_value:
+      - script.execute: apply_brightness
+
+  # LDR on GPIO34 (on the back of the board). Kept for reference only;
+  # disabled in HA by default. Tested on this board on 2026-09-25: room light
+  # and full darkness both read ~0.075 V (the ADC's floor), and only a phone
+  # torch moved it (to ~0.11 V). The divider resistor makes it too insensitive
+  # for room light, so it isn't used for dimming.
+  - platform: adc
+    id: ldr
+    name: LDR
+    pin: GPIO34
+    attenuation: 0db     # most sensitive range (0 to ~1 V)
+    update_interval: 5s
+    accuracy_decimals: 3
+    unit_of_measurement: V
+    entity_category: diagnostic
+    disabled_by_default: true
+
+switch:
+  - platform: template
+    id: auto_brightness
+    name: Auto brightness
+    icon: mdi:brightness-auto
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - script.execute: apply_brightness
+    on_turn_off:
+      - script.execute: apply_brightness
+
+  # Night schedule: backlight fully off between "Screen off at" and "Screen on
+  # at" (set both from HA; they survive reboots). A tap still wakes it for
+  # ${touch_boost_s}. Set both times the same to disable without the switch.
+  - platform: template
+    id: night_off
+    name: Screen off at night
+    icon: mdi:monitor-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - script.execute: apply_brightness
+    on_turn_off:
+      - script.execute: apply_brightness
+
+datetime:
+  - platform: template
+    id: screen_off_at
+    type: time
+    name: Screen off at
+    icon: mdi:weather-night
+    optimistic: true
+    restore_value: true
+    initial_value: "23:00"
+    entity_category: config
+    on_value:
+      - script.execute: apply_brightness
+  - platform: template
+    id: screen_on_at
+    type: time
+    name: Screen on at
+    icon: mdi:weather-sunset-up
+    optimistic: true
+    restore_value: true
+    initial_value: "06:30"
+    entity_category: config
+    on_value:
+      - script.execute: apply_brightness
+
+globals:
+  - id: pre_boost          # backlight level before a tap, restored after it
+    type: float
+    initial_value: "0"
+  - id: slept              # true while the night schedule has it switched off
+    type: bool
+    initial_value: "false"
+  - id: boosted            # true while a screen tap has forced full brightness
+    type: bool
+    initial_value: "false"
+
+# =============================================================================
+#  Data from Home Assistant
+#  Everything arrives as text. Booleans arrive as "on"/"off". Numbers (line
+#  "700", delay "-1") arrive as text too, so nothing assumes a type.
+# =============================================================================
+text_sensor:
+  # The entity state itself: an ISO timestamp, or "unknown"/"unavailable"
+  # when there's no departure. This is what decides "is there a bus?".
+  # (HA does NOT clear attributes when the state goes unknown, so the
+  # attributes below can't be trusted on their own.)
+  - platform: homeassistant
+    id: ed_state
+    entity_id: sensor.bus_next_high_street
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_line
+    entity_id: sensor.bus_next_high_street
+    attribute: line
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_dest
+    entity_id: sensor.bus_next_high_street
+    attribute: destination
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_sched
+    entity_id: sensor.bus_next_high_street
+    attribute: scheduled
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_delay
+    entity_id: sensor.bus_next_high_street
+    attribute: delay
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_live
+    entity_id: sensor.bus_next_high_street
+    attribute: live
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_following
+    entity_id: sensor.bus_next_high_street
+    attribute: following
+    internal: true
+    on_value: {script.execute: refresh}
+
+  # Feed health for this stop: `stale` = HA's poller hasn't refreshed it,
+  # `quiet` = overnight pause (01:00-04:30), when stale is expected.
+  - platform: homeassistant
+    id: ed_feed_stale
+    entity_id: sensor.bus_oxontime_high_street
+    attribute: stale
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: ed_feed_quiet
+    entity_id: sensor.bus_oxontime_high_street
+    attribute: quiet
+    internal: true
+    on_value: {script.execute: refresh}
+
+  # Last bus of the day: state "22:57", attribute line.
+  - platform: homeassistant
+    id: last_time
+    entity_id: sensor.bus_last_departure
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: last_line
+    entity_id: sensor.bus_last_departure
+    attribute: line
+    internal: true
+    on_value: {script.execute: refresh}
+
+  # First bus of the morning (state "HH:MM"). OPTIONAL helper sensor in HA.
+  # If it doesn't exist the night screen just leaves this line blank.
+  - platform: homeassistant
+    id: first_time
+    entity_id: sensor.bus_first_high_street
+    internal: true
+    on_value: {script.execute: refresh}
+
+# Recompute the countdown and clock every 10 s.
+interval:
+  - interval: 10s
+    then:
+      - script.execute: refresh
+  # Re-check brightness once a minute (night schedule start/end).
+  - interval: 60s
+    then:
+      - script.execute: apply_brightness
+
+# =============================================================================
+#  Logic
+# =============================================================================
+script:
+  # Decides the backlight, in priority order:
+  #   1. a tap is holding it at full          -> leave it
+  #   2. inside the night-off window          -> off
+  #   3. Auto brightness on                   -> follow the sun
+  #   4. Auto brightness off                  -> your manual level (only
+  #      touched when coming out of the night-off window)
+  - id: apply_brightness
+    then:
+      - lambda: |-
+          if (id(boosted)) return;
+
+          auto now = id(ha_time).now();
+          bool asleep = false;
+          if (id(night_off).state && now.is_valid()) {
+            int n   = now.hour * 60 + now.minute;
+            int off = id(screen_off_at).hour * 60 + id(screen_off_at).minute;
+            int on  = id(screen_on_at).hour * 60 + id(screen_on_at).minute;
+            asleep = off <= on ? (n >= off && n < on)     // e.g. 01:00-06:00
+                               : (n >= off || n < on);    // e.g. 23:00-06:30
+          }
+
+          auto *bl = id(backlight);
+          if (asleep) {
+            if (bl->remote_values.is_on()) {
+              auto c = bl->turn_off();
+              c.set_transition_length(3000);
+              c.perform();
+            }
+            id(slept) = true;
+            return;
+          }
+
+          if (id(auto_brightness).state && !isnan(id(sun_elevation).state)) {
+            float e = id(sun_elevation).state;
+            float t = (e - ${sun_night_deg}) / (${sun_day_deg} - ${sun_night_deg});
+            t = std::max(0.0f, std::min(1.0f, t));   // 0 = night, 1 = day
+            float b = ${bl_min} + t * (${bl_max} - ${bl_min});
+            if (!bl->remote_values.is_on() || fabsf(bl->remote_values.get_brightness() - b) > 0.01f) {
+              auto c = bl->turn_on();
+              c.set_brightness(b);
+              c.set_transition_length(3000);
+              c.perform();
+            }
+          } else if (id(slept)) {
+            // Manual mode, night window just ended: back on at the last level.
+            auto c = bl->turn_on();
+            c.set_transition_length(3000);
+            c.perform();
+          }
+          id(slept) = false;
+
+  - id: touch_boost
+    mode: restart
+    then:
+      - lambda: |-
+          if (!id(boosted)) {   // first tap, not a repeat during the boost
+            auto &v = id(backlight)->remote_values;
+            id(pre_boost) = v.is_on() ? v.get_brightness() : 0.0f;
+          }
+          id(boosted) = true;
+      - light.turn_on: {id: backlight, brightness: 100%, transition_length: 0.2s}
+      - delay: ${touch_boost_s}
+      - lambda: |-
+          id(boosted) = false;
+          // Manual mode: put back the level from before the tap.
+          if (!id(auto_brightness).state && id(pre_boost) > 0.0f) {
+            auto c = id(backlight)->turn_on();
+            c.set_brightness(id(pre_boost));
+            c.perform();
+          }
+      - script.execute: apply_brightness
+
+  # Redraws every label from the current sensor values. Cheap; called on any
+  # data change and every 10 s.
+  - id: refresh
+    then:
+      - lambda: |-
+          // ---------- colours ----------
+          const uint32_t WHITE = 0xFFFFFF, GREY = 0x8A8A8A,
+                         GREEN = 0x15803D, AMBER = 0xD97706, RED = 0xDC2626,
+                         CHIP_OFF = 0x2A2A2A, BADGE = 0xFFD200, BADGE_OFF = 0x4A4A4A;
+
+          // ---------- helpers ----------
+          auto valid = [](const std::string &s) {
+            return !s.empty() && s != "unknown" && s != "unavailable" && s != "None";
+          };
+          auto is_true = [](const std::string &s) {
+            return s == "on" || s == "true" || s == "True" || s == "1";
+          };
+          // "19:59" -> minutes since midnight, or -1 if not a time
+          auto hhmm = [](const std::string &s) -> int {
+            int h, m;
+            if (sscanf(s.c_str(), "%d:%d", &h, &m) != 2) return -1;
+            if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+            return h * 60 + m;
+          };
+          auto fmt_hhmm = [](int m) {
+            m = ((m % 1440) + 1440) % 1440;
+            char b[8];
+            snprintf(b, sizeof(b), "%02d:%02d", m / 60, m % 60);
+            return std::string(b);
+          };
+          auto text = [](lv_obj_t *o, const std::string &t) { lv_label_set_text(o, t.c_str()); };
+          auto fg = [](lv_obj_t *o, uint32_t c) { lv_obj_set_style_text_color(o, lv_color_hex(c), 0); };
+          auto bg = [](lv_obj_t *o, uint32_t c) { lv_obj_set_style_bg_color(o, lv_color_hex(c), 0); };
+          auto show = [](lv_obj_t *o, bool v) {
+            if (v) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+          };
+
+          // ---------- inputs ----------
+          auto now = id(ha_time).now();
+          int now_m = now.is_valid() ? now.hour * 60 + now.minute : -1;
+          bool api_ok = ${ha_connected};   // from common/base.yaml
+          bool quiet = is_true(id(ed_feed_quiet).state);
+          bool feed_stale = is_true(id(ed_feed_stale).state) && !quiet;
+
+          int sched = hhmm(id(ed_sched).state);
+          bool have = valid(id(ed_state).state) && sched >= 0;
+          bool live = is_true(id(ed_live).state);
+          // delay may be "", "3", "-1" or "3.0"
+          int delay = (int) lroundf(atof(id(ed_delay).state.c_str()));
+          int dep = sched + delay;               // expected departure, minutes
+
+          // minutes until departure, handling midnight
+          int until = 0;
+          bool overdue = false;
+          if (have && now_m >= 0) {
+            until = dep - now_m;
+            if (until < -720) until += 1440;
+            else if (until > 720) until -= 1440;
+            if (until < -${gone_after}) have = false;   // long gone: treat as none
+            else if (until < -${overdue_after}) overdue = true;
+          }
+
+          // ---------- header ----------
+          text(id(lbl_clock), now.is_valid() ? now.strftime("%H:%M") : "--:--");
+          if (!api_ok) {
+            text(id(lbl_status), "NO HA");  fg(id(lbl_status), RED);   bg(id(dot_status), RED);
+          } else if (feed_stale || (have && overdue)) {
+            text(id(lbl_status), "STALE");  fg(id(lbl_status), AMBER); bg(id(dot_status), AMBER);
+          } else {
+            text(id(lbl_status), "");       bg(id(dot_status), GREEN);
+          }
+
+          show(id(grp_dep), have);
+          show(id(grp_none), !have);
+
+          // ---------- no departure (overnight / feed empty) ----------
+          if (!have) {
+            bool night = now_m >= 0 && (now_m >= 20 * 60 || now_m < 6 * 60);
+            text(id(lbl_none_title), night ? "No more buses" : "No buses listed");
+            text(id(lbl_none_sub), night ? "tonight" : "right now");
+            std::string first = id(first_time).state;
+            text(id(lbl_none_first), hhmm(first) >= 0 ? "First bus " + first : "");
+            return;
+          }
+
+          // Anything we can't trust is drawn grey: timetable guesses,
+          // lost HA connection, stale feed.
+          bool trusted = live && api_ok && !feed_stale && !overdue;
+
+          // ---------- big countdown ----------
+          std::string big;
+          bool show_unit = true;
+          if (now_m < 0 || overdue) { big = "--"; show_unit = false; }
+          else if (until <= 0)      { big = "Due"; show_unit = false; }
+          else if (until > 99)      { big = "99+"; }
+          else                      { big = to_string(until); }
+          if (!live && big != "--") big = "~" + big;   // "about": timetable only
+          // 1-2 characters ("17", "~9") use the 120 px font; 3+ ("Due",
+          // "~25", "99+") would hit the route badge, so use the 84 px one.
+          bool narrow = big.size() <= 2;
+          text(id(lbl_min), narrow ? big : "");
+          text(id(lbl_min_s), narrow ? "" : big);
+          fg(id(lbl_min), trusted ? WHITE : GREY);
+          fg(id(lbl_min_s), trusted ? WHITE : GREY);
+          show(id(lbl_unit), show_unit);
+          fg(id(lbl_unit), trusted ? WHITE : GREY);
+
+          // ---------- route badge ----------
+          text(id(lbl_line), id(ed_line).state);
+          bg(id(badge_line), live ? BADGE : BADGE_OFF);
+          fg(id(lbl_line), live ? 0x000000 : WHITE);
+
+          // ---------- expected time ----------
+          text(id(lbl_time), fmt_hhmm(dep));
+          fg(id(lbl_time), trusted ? WHITE : GREY);
+
+          // ---------- lateness chip ----------
+          char chip[24];
+          uint32_t chip_bg;
+          if (!live) {
+            snprintf(chip, sizeof(chip), "Timetable");  chip_bg = CHIP_OFF;
+          } else if (delay <= ${early_warn}) {
+            snprintf(chip, sizeof(chip), "%d min early", -delay);  chip_bg = AMBER;
+          } else if (delay < ${late_amber}) {
+            snprintf(chip, sizeof(chip), "On time");  chip_bg = GREEN;
+          } else if (delay < ${late_red}) {
+            snprintf(chip, sizeof(chip), "%d min late", delay);  chip_bg = AMBER;
+          } else {
+            snprintf(chip, sizeof(chip), "%d min late", delay);  chip_bg = RED;
+          }
+          if (live && !trusted) chip_bg = CHIP_OFF;   // don't colour-code stale data
+          text(id(lbl_chip), chip);
+          bg(id(chip_delay), chip_bg);
+          fg(id(lbl_chip), live ? WHITE : GREY);
+
+          // ---------- destination ----------
+          text(id(lbl_dest), valid(id(ed_dest).state) ? "to " + id(ed_dest).state : "");
+
+          // ---------- footer: last bus, else the one after ----------
+          bool is_last = hhmm(id(last_time).state) == sched &&
+                         (!valid(id(last_line).state) || id(last_line).state == id(ed_line).state);
+          show(id(tag_last), is_last);
+          std::string fol = id(ed_following).state;
+          text(id(lbl_following), (!is_last && valid(fol)) ? "Then " + fol : "");
+
+# =============================================================================
+#  Fonts (Roboto from Google Fonts, fetched at compile time)
+# =============================================================================
+font:
+  # The countdown. Only the glyphs it can show, to save flash.
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_huge
+    size: 120
+    bpp: 4
+    glyphs: "0123456789~+-Due"
+  # Same, smaller, for 3-character countdowns so they clear the route badge.
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_huge_s
+    size: 84
+    bpp: 4
+    glyphs: "0123456789~+-Due"
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_big
+    size: 40
+    bpp: 4
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_med
+    size: 24
+    bpp: 4
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_small
+    size: 18
+    bpp: 4
+
+# =============================================================================
+#  Layout (LVGL). Chosen over display lambdas because the layout is declared
+#  once here and the logic above only changes text and colours; LVGL also
+#  redraws only what changed, so no full-screen framebuffer is needed on a
+#  board without PSRAM.
+# =============================================================================
+lvgl:
+  displays: tft
+  rotation: 90              # landscape; see "Screen upside down / mirrored"
+
+  buffer_size: 25%
+  default_font: font_small
+  style_definitions:
+    - id: plain             # transparent container, no border/padding/scroll
+      bg_opa: TRANSP
+      border_width: 0
+      pad_all: 0
+      radius: 0
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      scrollable: false
+      pad_all: 0
+      widgets:
+        # ---------- header bar ----------
+        - obj:
+            x: 0
+            y: 0
+            width: 320
+            height: 32
+            bg_color: 0x1C1C1C
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - label:
+                  x: 8
+                  align: LEFT_MID
+                  text: "HIGH STREET"
+                  text_font: font_med
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_clock
+                  align: RIGHT_MID
+                  x: -8
+                  text: "--:--"
+                  text_font: font_med
+                  text_color: 0xB0B0B0
+              - obj:
+                  id: dot_status
+                  align: RIGHT_MID
+                  x: -76
+                  width: 12
+                  height: 12
+                  radius: 6
+                  border_width: 0
+                  bg_color: 0x5A5A5A
+              - label:
+                  id: lbl_status
+                  align: RIGHT_MID
+                  x: -96
+                  text: ""
+                  text_font: font_small
+
+        # ---------- departure ----------
+        - obj:
+            id: grp_dep
+            styles: plain
+            x: 0
+            y: 32
+            width: 320
+            height: 208
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_min
+                  x: 4
+                  y: -12
+                  text: "--"
+                  text_font: font_huge
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_min_s      # bottom-aligned with lbl_min
+                  x: 4
+                  y: 21
+                  text: ""
+                  text_font: font_huge_s
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_unit
+                  x: 10
+                  y: 112
+                  text: "min"
+                  text_font: font_med
+                  text_color: 0xFFFFFF
+              - obj:
+                  id: badge_line
+                  x: 204
+                  y: 10
+                  width: 108
+                  height: 56
+                  radius: 8
+                  border_width: 0
+                  pad_all: 0
+                  bg_color: 0xFFD200
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: lbl_line
+                        align: CENTER
+                        text: ""
+                        text_font: font_big
+                        text_color: 0x000000
+              - label:
+                  id: lbl_time
+                  x: 204
+                  y: 72
+                  width: 108
+                  text_align: CENTER
+                  text: ""
+                  text_font: font_big
+              - obj:
+                  id: chip_delay
+                  x: 204
+                  y: 122
+                  width: 108
+                  height: 30
+                  radius: 6
+                  border_width: 0
+                  pad_all: 0
+                  bg_color: 0x2A2A2A
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: lbl_chip
+                        align: CENTER
+                        text: ""
+                        text_font: font_small
+              - label:
+                  id: lbl_dest
+                  x: 8
+                  y: 150
+                  width: 190
+                  height: 29         # one line; fixed height makes DOT truncate
+                  long_mode: DOT     # "Pkway & Kidlin..." instead of wrapping
+                  text: ""
+                  text_font: font_med
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_following
+                  x: 8
+                  y: 182
+                  width: 190
+                  height: 22         # one line, truncated like the destination
+                  long_mode: DOT
+                  text: ""
+                  text_font: font_small
+                  text_color: 0x8A8A8A
+              - obj:
+                  id: tag_last
+                  x: 204
+                  y: 176
+                  width: 108
+                  height: 26
+                  radius: 6
+                  border_width: 0
+                  pad_all: 0
+                  bg_color: 0x7C3AED
+                  hidden: true
+                  scrollable: false
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "LAST BUS"
+                        text_font: font_small
+                        text_color: 0xFFFFFF
+
+        # ---------- nothing to show (overnight) ----------
+        - obj:
+            id: grp_none
+            styles: plain
+            x: 0
+            y: 32
+            width: 320
+            height: 208
+            hidden: true
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_none_title
+                  align: TOP_MID
+                  y: 40
+                  text: "No more buses"
+                  text_font: font_big
+                  text_color: 0xB0B0B0
+              - label:
+                  id: lbl_none_sub
+                  align: TOP_MID
+                  y: 90
+                  text: "tonight"
+                  text_font: font_med
+                  text_color: 0x8A8A8A
+              - label:
+                  id: lbl_none_first
+                  align: TOP_MID
+                  y: 140
+                  text: ""
+                  text_font: font_med
+                  text_color: 0x8A8A8A

@@ -1,0 +1,883 @@
+# =============================================================================
+#  GENERATED single-file version of cyd-light-panel.yaml.
+#  Paste the whole file into ESPHome Device Builder. Don't edit it here:
+#  edit the source files, then run `python tools/flatten.py`.
+#
+#  Built from:
+#    common/base.yaml
+#    boards/cyd-2432s028.yaml
+#    projects/light-panel/light-panel.yaml
+#    cyd-light-panel.yaml
+#
+#  Secrets it needs in Device Builder's secrets.yaml:
+#    cyd_panel_api_key
+#    cyd_panel_fallback_password
+#    wifi_password
+#    wifi_ssid
+# =============================================================================
+
+# =============================================================================
+#  Device: CYD Light Panel
+#  Board:   boards/cyd-2432s028.yaml   (twin-USB ST7789V unit, MAC d4:e9:f4:ae:85:a6 (last 3 bytes randomised))
+#  Project: projects/light-panel
+# =============================================================================
+
+
+# =============================================================================
+#  Shared by every device: identity, logging, OTA, Wi-Fi.
+#
+#  The device file must provide:
+#    substitutions: name, friendly_name
+#    api:  encryption: key: !secret <device>_api_key
+#    wifi: ap: ssid / password (the fallback hotspot)
+#  Those stay in the device file because they're per-unit, and !secret can't
+#  be driven by a substitution.
+# =============================================================================
+
+substitutions:
+  # --- from common/base.yaml ---
+  # C++ expression projects use for "is Home Assistant connected?". Demo builds
+  # (tools/demo) override it to fake a connection without HA.
+  ha_connected: "(api::global_api_server != nullptr && api::global_api_server->is_connected_with_state_subscription())"
+
+  # --- from boards/cyd-2432s028.yaml ---
+  # ---- WHICH BOARD REVISION? ----------------------------------------------
+  #   ESP32-2432S028       single micro-USB board (ILI9341)
+  #   ESP32-2432S028-7789  USB-C + micro-USB board with ST7789V
+  #   ESP32-2432S028-9342  USB-C + micro-USB board with ILI9342
+  # The preset sets the controller, CS=GPIO15, DC=GPIO2 and 40 MHz SPI.
+  display_model: ESP32-2432S028-7789
+
+  # ---- Touch calibration (raw XPT2046 readings at the screen edges) --------
+  # Typical values. Measure each unit if it has touch targets: see
+  # cyd-2432s028.md, "Calibrating touch".
+  touch_x_min: "472"  # set in cyd-light-panel.yaml
+  touch_x_max: "3820"  # set in cyd-light-panel.yaml
+  touch_y_min: "170"  # set in cyd-light-panel.yaml
+  touch_y_max: "3879"  # set in cyd-light-panel.yaml
+
+  # --- from cyd-light-panel.yaml ---
+  name: cyd-light-panel
+  friendly_name: CYD Light Panel
+
+  # ---- The eight tiles: b1-b4 top row left to right, b5-b8 bottom row -----
+  # Icons: pick a code from the list under `font:` in
+  # projects/light-panel/light-panel.yaml.
+  # Top row: radios. Icon = where it plays, name = station.
+  b1_entity: switch.radio_6_nad
+  b1_name: "Radio 6"
+  b1_icon: "\U000F0030"      # mdi:amplifier (NAD)
+  b2_entity: switch.radio_gaga_nad
+  b2_name: "Gaga"
+  b2_icon: "\U000F0030"      # mdi:amplifier (NAD)
+  b3_entity: switch.radio_6_living_room
+  b3_name: "Radio 6"
+  b3_icon: "\U000F04B9"      # mdi:sofa (Living Room)
+  b4_entity: switch.radio_gaga_living_room
+  b4_name: "Gaga"
+  b4_icon: "\U000F04B9"      # mdi:sofa (Living Room)
+  # Bottom row: lights.
+  b5_entity: light.kitchen_light
+  b5_name: "Kitchen"
+  b5_icon: "\U000F04DE"      # mdi:stove
+  b6_entity: light.dining_room_lamps
+  b6_name: "Dining"
+  b6_icon: "\U000F0A70"      # mdi:silverware-fork-knife
+  b7_entity: light.corner_lamp
+  b7_name: "Corner"
+  b7_icon: "\U000F08DD"      # mdi:floor-lamp
+  b8_entity: light.big_lights
+  b8_name: "Big lights"
+  b8_icon: "\U000F0769"      # mdi:ceiling-light
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+  # (from projects/light-panel/light-panel.yaml)
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: show_connection
+
+logger:
+  level: INFO
+
+# OTA uploads are encrypted and authenticated with the device's API key (an
+# empty `encryption:` block means "use the api key"), so no OTA password.
+ota:
+  - platform: esphome
+    encryption: {}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # If Wi-Fi fails, the device starts its own hotspot (ssid/password set in the
+  # device file). Join it and browse to 192.168.4.1 to enter new Wi-Fi details.
+
+  # (from cyd-light-panel.yaml)
+  ap:
+    ssid: "CYD Panel Fallback"
+    password: !secret cyd_panel_fallback_password
+
+captive_portal:
+
+
+# =============================================================================
+#  Board: ESP32-2432S028R "Cheap Yellow Display" (CYD)
+#  ESP32-WROOM-32 (4 MB flash, no PSRAM), 2.8" 320x240 SPI display,
+#  XPT2046 resistive touch on its own SPI bus, backlight on GPIO21, RGB LED.
+#  Notes, pinout and quirks: cyd-2432s028.md
+#
+#  IDs other files can use:
+#    tft (display), touch (touchscreen), backlight (light), rgb_led (light),
+#    tft_spi / touch_spi (spi), backlight_pwm, led_r/g/b (outputs)
+#
+#  Per-device settings (override in the device file's substitutions):
+#    display_model   which board revision, see below
+#    touch_x_min / touch_x_max / touch_y_min / touch_y_max   calibration
+#
+#  Landscape layout assumes LVGL `rotation: 90` (USB sockets on the right).
+# =============================================================================
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# The CYD has TWO SPI buses: one for the display, a separate one for touch.
+spi:
+  - id: tft_spi            # display
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+  - id: touch_spi          # XPT2046 touch controller
+    clk_pin: GPIO25
+    mosi_pin: GPIO32
+    miso_pin: GPIO39       # GPIO39 is input-only, fine for MISO
+
+display:
+  - platform: mipi_spi
+    id: tft
+    model: ${display_model}
+    spi_id: tft_spi
+    # LVGL does the drawing, so the display needs no update loop of its own.
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: touch_spi
+    cs_pin: GPIO33
+    interrupt_pin:         # touch IRQ. GPIO36 is input-only with no internal
+      number: GPIO36       # pull-up; the board has an external one.
+      mode: input
+    # With the USB sockets on the right: raw X runs top->bottom, raw Y runs
+    # left->right.
+    calibration:
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
+    # Needed with LVGL rotation 90, otherwise taps on the top row land on the
+    # bottom row and vice versa. (Found on the twin-USB ST7789V revision.)
+    transform:
+      mirror_x: true
+    # (from projects/light-panel/light-panel.yaml)
+    on_touch:
+      - logger.log:
+          format: "touch x=%d y=%d raw=%d,%d"
+          args: [touch.x, touch.y, touch.x_raw, touch.y_raw]
+          level: INFO
+    # (from projects/light-panel/light-panel.yaml)
+    on_release:
+      # While the screen is off LVGL is paused and ignores touches, so this
+      # tap only wakes the screen.
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+            - light.turn_on: backlight
+
+output:
+  # Backlight, PWM so it can dim.
+  - platform: ledc
+    pin: GPIO21
+    id: backlight_pwm
+    frequency: 5000Hz
+  # RGB LED on the back: active LOW (pin low = LED on), hence inverted.
+  - platform: ledc
+    pin: GPIO4
+    id: led_r
+    inverted: true
+  - platform: ledc
+    pin: GPIO16
+    id: led_g
+    inverted: true
+  - platform: ledc
+    pin: GPIO17
+    id: led_b
+    inverted: true
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    # Always on at boot. (Restoring the last state could bring the screen back
+    # dark if it was off when unplugged.)
+    restore_mode: ALWAYS_ON
+    # Awake brightness: set it from HA with the Backlight light.
+    default_transition_length: 0.3s  # set in projects/light-panel/light-panel.yaml
+    # Linear: "8%" really is 8% PWM duty. With gamma 2.2, 8% became ~0.4%
+    # duty and the screen looked switched off.
+    gamma_correct: 1.0
+
+  # The RGB LED is very bright. Off at boot and nothing on the device turns it
+  # on; it's exposed to HA in case you want to automate it.
+  - platform: rgb
+    id: rgb_led
+    name: Status LED
+    red: led_r
+    green: led_g
+    blue: led_b
+    restore_mode: ALWAYS_OFF
+
+
+# =============================================================================
+#  Project: light panel  (GENERATED by tools/gen_light_panel.py; edit that)
+#  8 touch tiles (4 x 2) that toggle Home Assistant lights and switches.
+#  Needs: a 320x240 landscape LVGL display (`tft`) with a calibrated
+#  touchscreen `touch`, light `backlight`.
+#
+#  Tap a tile to toggle it (any light or switch). Tiles show the real state:
+#    amber tile        on
+#    dark tile         off
+#    faded, red edge   HA says it is unavailable (tap does nothing)
+#  A red banner appears if the panel loses its connection to HA.
+#
+#  The screen goes off after "Screen timeout" (set in HA, default 60 s).
+#  While it's off, the first tap only wakes it, so you can't switch a light
+#  by accident in the dark.
+#
+#  The device file sets each tile with three substitutions, b1..b8:
+#    bN_entity   e.g. light.kitchen_light (any entity that can toggle)
+#    bN_name     about 9 characters max
+#    bN_icon     one of the 100 codes listed under `font:` below,
+#                e.g. "\U000F0769" for mdi:ceiling-light
+#  Tiles: b1-b4 top row left to right, b5-b8 bottom row.
+#
+#  HA side: in the ESPHome integration's options for the device, turn on
+#  "Allow the device to perform Home Assistant actions", or taps do nothing.
+# =============================================================================
+
+api:
+  on_client_connected:
+    - script.execute: show_connection
+  on_client_disconnected:
+    - script.execute: show_connection
+
+  # (from cyd-light-panel.yaml)
+  encryption:
+    key: !secret cyd_panel_api_key
+
+number:
+  - platform: template
+    id: screen_timeout
+    name: Screen timeout
+    icon: mdi:timer-outline
+    unit_of_measurement: s
+    min_value: 10
+    max_value: 600
+    step: 10
+    initial_value: 60
+    optimistic: true
+    restore_value: true
+    entity_category: config
+
+# =============================================================================
+#  Entity states from Home Assistant: "on", "off", "unavailable", ...
+# =============================================================================
+text_sensor:
+  - platform: homeassistant
+    id: st1
+    entity_id: ${b1_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn1
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st2
+    entity_id: ${b2_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn2
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st3
+    entity_id: ${b3_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn3
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st4
+    entity_id: ${b4_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn4
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st5
+    entity_id: ${b5_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn5
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st6
+    entity_id: ${b6_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn6
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st7
+    entity_id: ${b7_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn7
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+  - platform: homeassistant
+    id: st8
+    entity_id: ${b8_entity}
+    internal: true
+    on_value:
+      - lvgl.widget.update:
+          id: btn8
+          state:
+            checked: !lambda 'return x == "on";'
+            disabled: !lambda 'return x != "on" && x != "off";'
+
+# =============================================================================
+#  Connection banner
+# =============================================================================
+script:
+  - id: show_connection
+    then:
+      - lambda: |-
+          bool ok = ${ha_connected};   // from common/base.yaml
+          if (ok) lv_obj_add_flag(id(banner_offline), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_remove_flag(id(banner_offline), LV_OBJ_FLAG_HIDDEN);
+
+interval:
+  - interval: 5s
+    then:
+      - script.execute: show_connection
+
+# =============================================================================
+#  Fonts
+# =============================================================================
+font:
+  # Material Design Icons: a fixed set of 100 for a typical home (from
+  # tools/icon_set.py). Any tile can use any icon listed here, and tiles can
+  # share icons. An icon that isn't listed shows as a blank tile: add it to
+  # tools/icon_set.py and regenerate (each code only once, or Validate fails
+  # with "Found duplicate glyphs").
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: font_icons
+    size: 56
+    bpp: 4
+    glyphs:
+      # --- Lights ---
+      - "\U000F0335"   # F0335  mdi:lightbulb
+      - "\U000F0336"   # F0336  mdi:lightbulb-outline
+      - "\U000F1253"   # F1253  mdi:lightbulb-group
+      - "\U000F1A4C"   # F1A4C  mdi:lightbulb-night
+      - "\U000F0769"   # F0769  mdi:ceiling-light
+      - "\U000F18DD"   # F18DD  mdi:ceiling-light-multiple
+      - "\U000F179B"   # F179B  mdi:light-recessed
+      - "\U000F1793"   # F1793  mdi:chandelier
+      - "\U000F08DD"   # F08DD  mdi:floor-lamp
+      - "\U000F095F"   # F095F  mdi:desk-lamp
+      - "\U000F06B5"   # F06B5  mdi:lamp
+      - "\U000F1576"   # F1576  mdi:lamps
+      - "\U000F091C"   # F091C  mdi:wall-sconce
+      - "\U000F1051"   # F1051  mdi:led-strip-variant
+      - "\U000F12BA"   # F12BA  mdi:string-lights
+      - "\U000F04C9"   # F04C9  mdi:spotlight-beam
+      - "\U000F0914"   # F0914  mdi:track-light
+      - "\U000F1054"   # F1054  mdi:outdoor-lamp
+      - "\U000F1020"   # F1020  mdi:coach-lamp
+      # --- Rooms and places ---
+      - "\U000F02DC"   # F02DC  mdi:home
+      - "\U000F04B9"   # F04B9  mdi:sofa
+      - "\U000F02E3"   # F02E3  mdi:bed
+      - "\U000F0FD2"   # F0FD2  mdi:bed-king
+      - "\U000F1239"   # F1239  mdi:desk
+      - "\U000F1061"   # F1061  mdi:table-chair
+      - "\U000F0A70"   # F0A70  mdi:silverware-fork-knife
+      - "\U000F04DE"   # F04DE  mdi:stove
+      - "\U000F1818"   # F1818  mdi:bathtub
+      - "\U000F09A0"   # F09A0  mdi:shower
+      - "\U000F09AB"   # F09AB  mdi:toilet
+      - "\U000F04CD"   # F04CD  mdi:stairs
+      - "\U000F081A"   # F081A  mdi:door
+      - "\U000F081C"   # F081C  mdi:door-open
+      - "\U000F06D9"   # F06D9  mdi:garage
+      - "\U000F0299"   # F0299  mdi:gate
+      - "\U000F179A"   # F179A  mdi:fence
+      - "\U000F1817"   # F1817  mdi:balcony
+      - "\U000F002D"   # F002D  mdi:greenhouse
+      - "\U000F0531"   # F0531  mdi:tree
+      - "\U000F024A"   # F024A  mdi:flower
+      - "\U000F1510"   # F1510  mdi:grass
+      - "\U000F0606"   # F0606  mdi:pool
+      # --- Audio and TV ---
+      - "\U000F04C3"   # F04C3  mdi:speaker
+      - "\U000F071F"   # F071F  mdi:speaker-wireless
+      - "\U000F0030"   # F0030  mdi:amplifier
+      - "\U000F0439"   # F0439  mdi:radio
+      - "\U000F075A"   # F075A  mdi:music
+      - "\U000F02CB"   # F02CB  mdi:headphones
+      - "\U000F0502"   # F0502  mdi:television
+      - "\U000F042E"   # F042E  mdi:projector
+      - "\U000F0118"   # F0118  mdi:cast
+      - "\U000F0297"   # F0297  mdi:gamepad-variant
+      # --- Heating and air ---
+      - "\U000F0210"   # F0210  mdi:fan
+      - "\U000F1797"   # F1797  mdi:ceiling-fan
+      - "\U000F001B"   # F001B  mdi:air-conditioner
+      - "\U000F0D44"   # F0D44  mdi:air-purifier
+      - "\U000F0438"   # F0438  mdi:radiator
+      - "\U000F0E2E"   # F0E2E  mdi:fireplace
+      - "\U000F0238"   # F0238  mdi:fire
+      - "\U000F050F"   # F050F  mdi:thermometer
+      - "\U000F0717"   # F0717  mdi:snowflake
+      - "\U000F0F92"   # F0F92  mdi:water-boiler
+      - "\U000F00AC"   # F00AC  mdi:blinds
+      - "\U000F1846"   # F1846  mdi:curtains
+      - "\U000F11DC"   # F11DC  mdi:window-open-variant
+      # --- Appliances ---
+      - "\U000F05FA"   # F05FA  mdi:kettle
+      - "\U000F109F"   # F109F  mdi:coffee-maker
+      - "\U000F0C99"   # F0C99  mdi:microwave
+      - "\U000F0CD3"   # F0CD3  mdi:toaster-oven
+      - "\U000F0290"   # F0290  mdi:fridge
+      - "\U000F0AAC"   # F0AAC  mdi:dishwasher
+      - "\U000F072A"   # F072A  mdi:washing-machine
+      - "\U000F0917"   # F0917  mdi:tumble-dryer
+      - "\U000F070D"   # F070D  mdi:robot-vacuum
+      - "\U000F10EF"   # F10EF  mdi:hair-dryer
+      - "\U000F042A"   # F042A  mdi:printer
+      # --- Power and devices ---
+      - "\U000F0425"   # F0425  mdi:power
+      - "\U000F06A5"   # F06A5  mdi:power-plug
+      - "\U000F07E8"   # F07E8  mdi:power-socket-uk
+      - "\U000F0521"   # F0521  mdi:toggle-switch
+      - "\U000F140B"   # F140B  mdi:lightning-bolt
+      - "\U000F0A72"   # F0A72  mdi:solar-power
+      - "\U000F0079"   # F0079  mdi:battery
+      - "\U000F05F1"   # F05F1  mdi:ev-station
+      - "\U000F010B"   # F010B  mdi:car
+      - "\U000F07C0"   # F07C0  mdi:desktop-classic
+      - "\U000F0322"   # F0322  mdi:laptop
+      - "\U000F0469"   # F0469  mdi:router-wireless
+      # --- Security and misc ---
+      - "\U000F068A"   # F068A  mdi:shield-home
+      - "\U000F033E"   # F033E  mdi:lock
+      - "\U000F07AE"   # F07AE  mdi:cctv
+      - "\U000F12E6"   # F12E6  mdi:doorbell
+      - "\U000F009A"   # F009A  mdi:bell
+      - "\U000F078F"   # F078F  mdi:alarm-light
+      - "\U000F105F"   # F105F  mdi:sprinkler
+      - "\U000F1481"   # F1481  mdi:watering-can
+      - "\U000F04CE"   # F04CE  mdi:star
+      - "\U000F0A43"   # F0A43  mdi:dog
+      - "\U000F011B"   # F011B  mdi:cat
+      - "\U000F0594"   # F0594  mdi:weather-night
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_name
+    size: 16
+    bpp: 4
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_banner
+    size: 18
+    bpp: 4
+
+# =============================================================================
+#  Layout (LVGL)
+# =============================================================================
+lvgl:
+  displays: tft
+  rotation: 90             # landscape, USB sockets on the right
+  buffer_size: 25%
+  default_font: font_name
+  # Screen off after the timeout. LVGL pauses, so the next tap only wakes it.
+  on_idle:
+    timeout: !lambda "return (uint32_t) (id(screen_timeout).state * 1000);"
+    then:
+      - light.turn_off: backlight
+      - lvgl.pause:
+  style_definitions:
+    # Icon and name inherit text_color from the tile, so they follow its state.
+    - id: tile
+      radius: 10
+      border_width: 0
+      pad_all: 0
+      shadow_width: 0
+      bg_color: 0x1E1E1E
+      text_color: 0x9A9A9A
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      scrollable: false
+      pad_all: 0
+      widgets:
+        - button:
+            id: btn1
+            styles: tile
+            x: 4
+            y: 4
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b1_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b1_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b1_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b1_name}"
+        - button:
+            id: btn2
+            styles: tile
+            x: 83
+            y: 4
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b2_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b2_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b2_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b2_name}"
+        - button:
+            id: btn3
+            styles: tile
+            x: 162
+            y: 4
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b3_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b3_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b3_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b3_name}"
+        - button:
+            id: btn4
+            styles: tile
+            x: 241
+            y: 4
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b4_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b4_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b4_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b4_name}"
+        - button:
+            id: btn5
+            styles: tile
+            x: 4
+            y: 122
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b5_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b5_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b5_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b5_name}"
+        - button:
+            id: btn6
+            styles: tile
+            x: 83
+            y: 122
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b6_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b6_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b6_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b6_name}"
+        - button:
+            id: btn7
+            styles: tile
+            x: 162
+            y: 122
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b7_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b7_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b7_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b7_name}"
+        - button:
+            id: btn8
+            styles: tile
+            x: 241
+            y: 122
+            width: 75
+            height: 114
+            state:
+              disabled: true           # until HA reports the state
+            pressed:
+              bg_color: 0x3A3A3A
+            checked:                   # entity is on
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            disabled:                  # entity unavailable
+              bg_color: 0x141414
+              text_color: 0x4A4A4A
+              border_width: 2
+              border_color: 0x7F1D1D
+            on_click:
+              - logger.log: {format: "Tapped ${b8_name}", level: INFO}
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: ${b8_entity}
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text_font: font_icons
+                  text: "${b8_icon}"
+              - label:
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 71
+                  height: 20
+                  long_mode: DOT
+                  text_align: CENTER
+                  text: "${b8_name}"
+        - label:
+            id: banner_offline
+            align: CENTER
+            text: "Not connected to Home Assistant"
+            text_font: font_banner
+            text_color: 0xFFFFFF
+            bg_color: 0xB91C1C
+            bg_opa: COVER
+            radius: 6
+            pad_all: 8

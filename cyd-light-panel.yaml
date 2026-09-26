@@ -1,0 +1,59 @@
+# =============================================================================
+#  Device: CYD Light Panel
+#  Board:   boards/cyd-2432s028.yaml   (twin-USB ST7789V unit, MAC d4:e9:f4:ae:85:a6 (last 3 bytes randomised))
+#  Project: projects/light-panel
+# =============================================================================
+
+substitutions:
+  name: cyd-light-panel
+  friendly_name: CYD Light Panel
+
+  # Touch calibration measured on this unit (2026-09-25) by tapping the corners.
+  touch_x_min: "472"
+  touch_x_max: "3820"
+  touch_y_min: "170"
+  touch_y_max: "3879"
+
+  # ---- The eight tiles: b1-b4 top row left to right, b5-b8 bottom row -----
+  # Icons: pick a code from the list under `font:` in
+  # projects/light-panel/light-panel.yaml.
+  # Top row: radios. Icon = where it plays, name = station.
+  b1_entity: switch.radio_6_nad
+  b1_name: "Radio 6"
+  b1_icon: "\U000F0030"      # mdi:amplifier (NAD)
+  b2_entity: switch.radio_gaga_nad
+  b2_name: "Gaga"
+  b2_icon: "\U000F0030"      # mdi:amplifier (NAD)
+  b3_entity: switch.radio_6_living_room
+  b3_name: "Radio 6"
+  b3_icon: "\U000F04B9"      # mdi:sofa (Living Room)
+  b4_entity: switch.radio_gaga_living_room
+  b4_name: "Gaga"
+  b4_icon: "\U000F04B9"      # mdi:sofa (Living Room)
+  # Bottom row: lights.
+  b5_entity: light.kitchen_light
+  b5_name: "Kitchen"
+  b5_icon: "\U000F04DE"      # mdi:stove
+  b6_entity: light.dining_room_lamps
+  b6_name: "Dining"
+  b6_icon: "\U000F0A70"      # mdi:silverware-fork-knife
+  b7_entity: light.corner_lamp
+  b7_name: "Corner"
+  b7_icon: "\U000F08DD"      # mdi:floor-lamp
+  b8_entity: light.big_lights
+  b8_name: "Big lights"
+  b8_icon: "\U000F0769"      # mdi:ceiling-light
+
+packages:
+  base: !include common/base.yaml
+  board: !include boards/cyd-2432s028.yaml
+  project: !include projects/light-panel/light-panel.yaml
+
+api:
+  encryption:
+    key: !secret cyd_panel_api_key
+
+wifi:
+  ap:
+    ssid: "CYD Panel Fallback"
+    password: !secret cyd_panel_fallback_password

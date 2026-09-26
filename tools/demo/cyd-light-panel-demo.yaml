@@ -1,0 +1,63 @@
+# =============================================================================
+#  DEMO build of the light panel: real board + the panel project with tiles
+#  that toggle locally, no Wi-Fi or HA needed. For checking the layout and
+#  touch calibration on a bare board: every tap logs its coordinates and the
+#  tile it hit ("Tapped <name>"), and the tile under your finger should toggle.
+#
+#  The project comes from light-panel-demo.yaml, generated alongside the real
+#  one by:  python projects/light-panel/tools/gen_light_panel.py --demo
+#
+#  Build/flash from this folder:  esphome run cyd-light-panel-demo.yaml
+#  Watch taps:  python ../serial_log.py COM4 --grep "touch x=|Tapped"
+# =============================================================================
+
+substitutions:
+  name: cyd-panel-demo
+  friendly_name: CYD Panel Demo
+  ha_connected: "true"        # hide the "not connected" banner
+
+  # Put the unit's measured calibration here (see tools/touch-calibration).
+  touch_x_min: "472"
+  touch_x_max: "3820"
+  touch_y_min: "170"
+  touch_y_max: "3879"
+
+  # Placeholder tiles (entities don't matter in the demo).
+  b1_entity: light.demo_1
+  b1_name: "Ceiling"
+  b1_icon: "\U000F0769"      # mdi:ceiling-light
+  b2_entity: light.demo_2
+  b2_name: "Lamp"
+  b2_icon: "\U000F06B5"      # mdi:lamp
+  b3_entity: light.demo_3
+  b3_name: "Floor"
+  b3_icon: "\U000F08DD"      # mdi:floor-lamp
+  b4_entity: light.demo_4
+  b4_name: "Desk"
+  b4_icon: "\U000F095F"      # mdi:desk-lamp
+  b5_entity: switch.demo_5
+  b5_name: "Radio"
+  b5_icon: "\U000F0439"      # mdi:radio
+  b6_entity: switch.demo_6
+  b6_name: "TV"
+  b6_icon: "\U000F0502"      # mdi:television
+  b7_entity: switch.demo_7
+  b7_name: "Kettle"
+  b7_icon: "\U000F05FA"      # mdi:kettle
+  b8_entity: switch.demo_8
+  b8_name: "Fan"
+  b8_icon: "\U000F0210"      # mdi:fan
+
+packages:
+  base: !include ../../common/base.yaml
+  board: !include ../../boards/cyd-2432s028.yaml
+  project: !include light-panel-demo.yaml
+
+api:
+  encryption:
+    key: !secret demo_api_key
+
+wifi:
+  ap:
+    ssid: "CYD Demo"
+    password: !secret demo_fallback_password

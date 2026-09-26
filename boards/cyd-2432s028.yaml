@@ -1,0 +1,120 @@
+# =============================================================================
+#  Board: ESP32-2432S028R "Cheap Yellow Display" (CYD)
+#  ESP32-WROOM-32 (4 MB flash, no PSRAM), 2.8" 320x240 SPI display,
+#  XPT2046 resistive touch on its own SPI bus, backlight on GPIO21, RGB LED.
+#  Notes, pinout and quirks: cyd-2432s028.md
+#
+#  IDs other files can use:
+#    tft (display), touch (touchscreen), backlight (light), rgb_led (light),
+#    tft_spi / touch_spi (spi), backlight_pwm, led_r/g/b (outputs)
+#
+#  Per-device settings (override in the device file's substitutions):
+#    display_model   which board revision, see below
+#    touch_x_min / touch_x_max / touch_y_min / touch_y_max   calibration
+#
+#  Landscape layout assumes LVGL `rotation: 90` (USB sockets on the right).
+# =============================================================================
+
+substitutions:
+  # ---- WHICH BOARD REVISION? ----------------------------------------------
+  #   ESP32-2432S028       single micro-USB board (ILI9341)
+  #   ESP32-2432S028-7789  USB-C + micro-USB board with ST7789V
+  #   ESP32-2432S028-9342  USB-C + micro-USB board with ILI9342
+  # The preset sets the controller, CS=GPIO15, DC=GPIO2 and 40 MHz SPI.
+  display_model: ESP32-2432S028-7789
+
+  # ---- Touch calibration (raw XPT2046 readings at the screen edges) --------
+  # Typical values. Measure each unit if it has touch targets: see
+  # cyd-2432s028.md, "Calibrating touch".
+  touch_x_min: "280"
+  touch_x_max: "3860"
+  touch_y_min: "340"
+  touch_y_max: "3860"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# The CYD has TWO SPI buses: one for the display, a separate one for touch.
+spi:
+  - id: tft_spi            # display
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+  - id: touch_spi          # XPT2046 touch controller
+    clk_pin: GPIO25
+    mosi_pin: GPIO32
+    miso_pin: GPIO39       # GPIO39 is input-only, fine for MISO
+
+display:
+  - platform: mipi_spi
+    id: tft
+    model: ${display_model}
+    spi_id: tft_spi
+    # LVGL does the drawing, so the display needs no update loop of its own.
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: touch_spi
+    cs_pin: GPIO33
+    interrupt_pin:         # touch IRQ. GPIO36 is input-only with no internal
+      number: GPIO36       # pull-up; the board has an external one.
+      mode: input
+    # With the USB sockets on the right: raw X runs top->bottom, raw Y runs
+    # left->right.
+    calibration:
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
+    # Needed with LVGL rotation 90, otherwise taps on the top row land on the
+    # bottom row and vice versa. (Found on the twin-USB ST7789V revision.)
+    transform:
+      mirror_x: true
+
+output:
+  # Backlight, PWM so it can dim.
+  - platform: ledc
+    pin: GPIO21
+    id: backlight_pwm
+    frequency: 5000Hz
+  # RGB LED on the back: active LOW (pin low = LED on), hence inverted.
+  - platform: ledc
+    pin: GPIO4
+    id: led_r
+    inverted: true
+  - platform: ledc
+    pin: GPIO16
+    id: led_g
+    inverted: true
+  - platform: ledc
+    pin: GPIO17
+    id: led_b
+    inverted: true
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    # Always on at boot. (Restoring the last state could bring the screen back
+    # dark if it was off when unplugged.)
+    restore_mode: ALWAYS_ON
+    default_transition_length: 1s
+    # Linear: "8%" really is 8% PWM duty. With gamma 2.2, 8% became ~0.4%
+    # duty and the screen looked switched off.
+    gamma_correct: 1.0
+
+  # The RGB LED is very bright. Off at boot and nothing on the device turns it
+  # on; it's exposed to HA in case you want to automate it.
+  - platform: rgb
+    id: rgb_led
+    name: Status LED
+    red: led_r
+    green: led_g
+    blue: led_b
+    restore_mode: ALWAYS_OFF

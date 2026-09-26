@@ -1,0 +1,87 @@
+# =============================================================================
+#  DEMO build of the bus display: runs the real board + project with fake data,
+#  no Wi-Fi or HA needed. For checking layout, colours and every screen state
+#  on a bare board before pairing it.
+#
+#  Every 6 s it moves to the next of 10 scenarios (loop = 1 minute):
+#    0 on time   1 4 min late (amber)   2 9 min late (red)   3 timetable-only
+#    4 last bus  5 due                  6 3 min early        7 overnight, night
+#    8 stale feed                       9 HA disconnected         brightness
+#  The clock is faked to 19:42 BST on 2026-09-25 at the first step.
+#
+#  Build/flash from this folder:  esphome run cyd-bus-display-demo.yaml
+#  (uses the dummy secrets.yaml next to this file)
+# =============================================================================
+
+substitutions:
+  name: cyd-bus-demo
+  friendly_name: CYD Bus Demo
+  # Fake "HA connected" except in scenario 9.
+  ha_connected: "(id(demo_step) != 9)"
+
+packages:
+  base: !include ../../common/base.yaml
+  board: !include ../../boards/cyd-2432s028.yaml
+  project: !include ../../projects/bus-display/bus-display.yaml
+
+api:
+  encryption:
+    key: !secret demo_api_key
+
+wifi:
+  ap:
+    ssid: "CYD Demo"
+    password: !secret demo_fallback_password
+
+globals:
+  - id: demo_step
+    type: int
+    initial_value: "-1"
+
+interval:
+  - interval: 6s
+    then:
+      - lambda: |-
+          static bool clock_set = false;
+          if (!clock_set) {
+            struct timeval tv = { .tv_sec = 1790361720, .tv_usec = 0 };  // 2026-09-25 18:42 UTC
+            settimeofday(&tv, nullptr);
+            clock_set = true;
+          }
+          int step = (id(demo_step) + 1) % 10;
+          id(demo_step) = step;
+          auto now = id(ha_time).now();
+          int nm = now.hour * 60 + now.minute;
+          auto at = [&](int plus) {
+            char b[8]; int m = (nm + plus) % 1440;
+            snprintf(b, 8, "%02d:%02d", m / 60, m % 60);
+            return std::string(b);
+          };
+          struct Sc { const char *st, *line, *dest; int plus, delay; const char *live, *fol, *stale; bool last; };
+          static const Sc sc[10] = {
+            {"x", "S9",  "Wantage",               17,  0, "on",  "20:29 S9", "off", false},
+            {"x", "700", "Pkway & Kidlington",     8,  4, "on",  "20:13 X3", "off", false},
+            {"x", "S9",  "Wantage",                3,  9, "on",  "20:29 S9", "off", false},
+            {"x", "S9",  "Wantage",               25,  0, "off", "20:59 S9", "off", false},
+            {"x", "S9",  "Wantage",               12,  1, "on",  "",         "off", true },
+            {"x", "S9",  "Wantage",                0,  0, "on",  "20:29 S9", "off", false},
+            {"x", "S9",  "Wantage",                5, -3, "on",  "20:29 S9", "off", false},
+            {"unknown", "S9", "Wantage",           5,  0, "on",  "",         "off", false},
+            {"x", "S9",  "Wantage",               14,  0, "on",  "20:29 S9", "on",  false},
+            {"x", "S9",  "Wantage",               14,  0, "on",  "20:29 S9", "off", false},
+          };
+          const Sc &c = sc[step];
+          ESP_LOGI("demo", "scenario %d", step);
+          id(first_time).publish_state("05:32");
+          id(sun_elevation).publish_state(step == 7 ? -10.0f : 30.0f);  // 7 = night brightness
+          id(ed_feed_quiet).publish_state("off");
+          id(ed_feed_stale).publish_state(c.stale);
+          id(ed_line).publish_state(c.line);
+          id(ed_dest).publish_state(c.dest);
+          id(ed_sched).publish_state(at(c.plus));
+          id(ed_delay).publish_state(to_string(c.delay));
+          id(ed_live).publish_state(c.live);
+          id(ed_following).publish_state(c.fol);
+          id(last_time).publish_state(c.last ? at(c.plus) : "22:57");
+          id(last_line).publish_state(c.last ? c.line : "S9");
+          id(ed_state).publish_state(c.st);

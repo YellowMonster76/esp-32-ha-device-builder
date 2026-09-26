@@ -1,0 +1,15 @@
+# Real secrets never go in the repo. See secrets.example.yaml.
+secrets.yaml
+# ...except the demo builds' file, which holds dummy values only.
+!tools/demo/secrets.yaml
+
+# ESPHome build output and caches
+.esphome/
+*.bin
+
+# Python
+__pycache__/
+*.pyc
+
+# Local tool output
+*.log

@@ -1,0 +1,25 @@
+# =============================================================================
+#  Device: CYD Bus Display (desk)
+#  Board:   boards/cyd-2432s028.yaml   (twin-USB ST7789V unit, MAC 48:9d:31:74:77:7d (last 3 bytes randomised))
+#  Project: projects/bus-display       (High Street only)
+# =============================================================================
+
+substitutions:
+  name: cyd-bus-display
+  friendly_name: CYD Bus Display
+  # Touch here is "tap anywhere", so this unit was never calibrated; the
+  # board's typical values are used.
+
+packages:
+  base: !include common/base.yaml
+  board: !include boards/cyd-2432s028.yaml
+  project: !include projects/bus-display/bus-display.yaml
+
+api:
+  encryption:
+    key: !secret cyd_bus_api_key
+
+wifi:
+  ap:
+    ssid: "CYD Bus Fallback"
+    password: !secret cyd_bus_fallback_password

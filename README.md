@@ -1,0 +1,174 @@
+# ESP32 devices for Home Assistant
+
+A reference library for the ESP32 devices around the house: what each board
+is, what we found out about it on real hardware, and **working example
+configs** for ESPHome (built and flashed with the **ESPHome Device Builder**
+add-on in Home Assistant).
+
+The aim is to never have to research the same device twice. Each config here
+was compiled and tested on the real board when it was added (see each
+README for what was checked).
+
+**This is a record, not a mirror.** The configs actually running live in
+Device Builder, and HA's own backups cover them. They may drift from the
+examples here, and that's fine. When something new is learned, or a new
+device or purpose works, add it here.
+
+Some names in the examples are **placeholders** for privacy (e.g. the bus
+stop "High Street", the station "Radio Gaga"), so entity IDs may not match
+the live HA setup. Check entity IDs when reusing a config.
+
+Every device is **one board + one project**:
+
+- a **board** file describes the hardware (pins, display, touch, backlight),
+- a **project** describes the purpose (what it shows, what it does),
+- a **device** file at the top level combines the two and adds that unit's own
+  settings (name, API key secret, calibration, which entities).
+
+Adding a new kind of hardware or a new purpose touches only its own folder.
+
+## Boards
+
+| Board | Chip | Display | Touch | Status | Bought from |
+|---|---|---|---|---|---|
+| [CYD ESP32-2432S028R](boards/cyd-2432s028.md) | ESP32-WROOM-32 | 2.8" 320×240 ST7789V | resistive (XPT2046) | **tested**, 2 in use | Amazon UK |
+| [4" ESP32 ST7796S](boards/esp32-4in-st7796s.md) | ESP32-WROOM-32E | 4.0" 320×480 ST7796S | resistive | **on order**, not yet tested | AliExpress |
+
+## Devices
+
+| Device | Board | Project | What it does |
+|---|---|---|---|
+| [`cyd-bus-display`](cyd-bus-display.yaml) | [CYD 2432S028](boards/cyd-2432s028.md) | [bus-display](projects/bus-display/README.md) | Next bus from High Street, live vs timetable, lateness |
+| [`cyd-light-panel`](cyd-light-panel.yaml) | [CYD 2432S028](boards/cyd-2432s028.md) | [light-panel](projects/light-panel/README.md) | 8 touch tiles toggling lights and radios |
+
+## Layout
+
+```
+.
+├── cyd-bus-display.yaml        device files: what you install (top level, so
+├── cyd-light-panel.yaml        Device Builder lists them)
+├── secrets.example.yaml        the secret names each device needs
+├── common/
+│   └── base.yaml               shared by every device: name, logger, OTA, Wi-Fi
+├── boards/
+│   ├── cyd-2432s028.yaml       hardware package
+│   └── cyd-2432s028.md         pinout, revisions, quirks, calibration
+├── projects/
+│   ├── bus-display/            bus-display.yaml + README
+│   └── light-panel/            light-panel.yaml (generated) + README + tools/
+├── docs/
+│   └── troubleshooting.md      things that went wrong and how they were fixed
+└── tools/                      bring-up tools: serial log, config compare,
+                                touch calibration, demo builds (fake data)
+```
+
+A device file is short. Everything else comes from the packages:
+
+```yaml
+substitutions:
+  name: cyd-light-panel
+  friendly_name: CYD Light Panel
+  touch_x_min: "472"            # this unit's calibration
+  # ...
+
+packages:
+  base: !include common/base.yaml
+  board: !include boards/cyd-2432s028.yaml
+  project: !include projects/light-panel/light-panel.yaml
+
+api:
+  encryption:
+    key: !secret cyd_panel_api_key
+
+wifi:
+  ap:
+    ssid: "CYD Panel Fallback"
+    password: !secret cyd_panel_fallback_password
+```
+
+Values in the device file win over the packages' defaults. A project that
+needs to change something the board defines uses `!extend` on its ID (for
+example `- id: !extend touch` to add touch actions), so board files never
+carry project-specific settings.
+
+## Using an example in Device Builder
+
+Two options:
+
+- **Single file (simplest):** run `esphome config <device>.yaml` locally. It
+  prints the fully merged config, and you paste that into a new device in
+  Device Builder. Or merge the board, project and device files by hand.
+- **Keep the packages:** copy the device file plus `common/`, `boards/` and
+  `projects/` into HA's `/config/esphome/`. Device Builder lists only
+  top-level YAML files as devices, which is why the device files sit at the
+  top here and the `!include` paths are relative to them.
+
+The first install on a new board is over USB: **Install → Plug into this
+computer**, in Chrome or Edge, with HA open over https. After that,
+**Install → Wirelessly**.
+
+The two devices here currently run the single-file form in Device Builder;
+their merged config is identical to these examples.
+
+## Secrets
+
+Real secrets live only in HA's `/config/esphome/secrets.yaml`, which is
+`.gitignore`d here. [`secrets.example.yaml`](secrets.example.yaml) lists the
+names each device expects. Generate a new API key per device:
+
+```bash
+python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+```
+
+## Adding things
+
+### A new device (existing board and project)
+
+1. Copy the closest device file to `<new-name>.yaml` at the top level.
+2. Change `name`, `friendly_name`, the secret names and the fallback hotspot.
+3. Set that unit's settings (calibration, entities, etc.).
+4. Add its secrets to HA's `secrets.yaml` and a line to `secrets.example.yaml`.
+5. Add it to the table above.
+
+### A new board type
+
+1. Create `boards/<board>.yaml` with the hardware only: `esp32:` (or
+   `esp8266:` etc.), buses, display, inputs and outputs, each with a clear
+   `id`. Anything that differs between units or revisions becomes a
+   `substitutions:` default.
+2. List the IDs it provides in the header comment. Projects depend on them.
+3. Write `boards/<board>.md`: where it was bought (a **Purchase** table:
+   shop, listing link, what actually arrived), pinout, how to tell revisions
+   apart, quirks found on the real hardware, how to calibrate.
+
+### A new project
+
+1. Create `projects/<project>/<project>.yaml` with the behaviour only: no
+   pins, no Wi-Fi, no API key.
+2. Start the header with what it **needs** from the board (e.g. "a 320x240
+   landscape display `tft`, touchscreen `touch`, light `backlight`") and which
+   device-file substitutions it expects.
+3. Hook into board parts with `!extend` rather than redefining them.
+4. Write `projects/<project>/README.md`: what it does, the HA entities it
+   reads or controls, settings, and anything the HA side must enable.
+
+### Checking a change
+
+Validate before installing (Device Builder's **Validate**, or locally
+`esphome config <device>.yaml`). After a refactor, run
+[`tools/compare_configs.py`](tools/compare_configs.py) on the before and after
+versions. It compares the fully merged configs, so "IDENTICAL" means
+identical firmware behaviour.
+
+To try a project on a bare board before pairing it with HA, use a demo build
+from [`tools/demo/`](tools/README.md#demo).
+
+## Licence
+
+[MIT](LICENSE). Use, copy and adapt freely.
+
+The licence covers this repo's own files. The icon font
+([Material Design Icons](https://pictogrammers.com/library/mdi/)) and text
+font (Roboto, from Google Fonts) are **not included**. The configs only
+reference them, and ESPHome downloads them at build time under their own
+licences.

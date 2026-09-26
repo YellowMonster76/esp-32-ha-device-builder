@@ -1,0 +1,2 @@
+# Keep LF everywhere: these files end up on the Home Assistant host (Linux).
+* text=auto eol=lf

@@ -29,10 +29,10 @@ Adding a new kind of hardware or a new purpose touches only its own folder.
 
 ## Boards
 
-| Board | Chip | Display | Touch | Status | Bought from |
-|---|---|---|---|---|---|
-| [CYD ESP32-2432S028R](boards/cyd-2432s028.md) | ESP32-WROOM-32 | 2.8" 320×240 ST7789V | resistive (XPT2046) | **tested**, 2 in use | Amazon UK |
-| [4" ESP32 ST7796S](boards/esp32-4in-st7796s.md) | ESP32-WROOM-32E | 4.0" 320×480 ST7796S | resistive | **on order**, not yet tested | AliExpress |
+| Board | Chip | Display | Touch | Status | Bought from | Case |
+|---|---|---|---|---|---|---|
+| [CYD ESP32-2432S028R](boards/cyd-2432s028.md) | ESP32-WROOM-32 | 2.8" 320×240 ST7789V | resistive (XPT2046) | **tested**, 2 in use | Amazon UK | [Printables 744864](https://www.printables.com/model/744864-esp32-cheap-yellow-display-usb-c-version-enclosure), printed and tested (USB-C version) |
+| [4" ESP32 ST7796S](boards/esp32-4in-st7796s.md) | ESP32-WROOM-32E | 4.0" 320×480 ST7796S | resistive | **on order**, not yet tested | AliExpress | none yet |
 
 ## Devices
 
@@ -151,8 +151,10 @@ date.)
    `substitutions:` default.
 2. List the IDs it provides in the header comment. Projects depend on them.
 3. Write `boards/<board>.md`: where it was bought (a **Purchase** table:
-   shop, listing link, what actually arrived), pinout, how to tell revisions
-   apart, quirks found on the real hardware, how to calibrate.
+   shop, listing link, what actually arrived), an **Enclosure** table once a
+   case has been printed and tested (link, which revision it fits), pinout,
+   how to tell revisions apart, quirks found on the real hardware, how to
+   calibrate.
 
 ### A new project
 

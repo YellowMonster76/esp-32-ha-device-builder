@@ -9,15 +9,6 @@ The aim is to never have to research the same device twice. Each config here
 was compiled and tested on the real board when it was added (see each
 README for what was checked).
 
-**This is a record, not a mirror.** The configs actually running live in
-Device Builder, and HA's own backups cover them. They may drift from the
-examples here, and that's fine. When something new is learned, or a new
-device or purpose works, add it here.
-
-Some names in the examples are **placeholders** for privacy (e.g. the bus
-stop "High Street", the station "Radio Gaga"), so entity IDs may not match
-the live HA setup. Check entity IDs when reusing a config.
-
 Every device is **one board + one project**:
 
 - a **board** file describes the hardware (pins, display, touch, backlight),

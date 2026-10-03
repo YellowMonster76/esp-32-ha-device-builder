@@ -1,15 +1,19 @@
-"""Generates ../light-panel.yaml: 8 touch tiles (4 x 2) for HA lights/switches.
+"""Generates the light panel projects: touch tiles for HA lights/switches.
 
-The eight tiles are identical apart from their number, so they're generated
-from one template here rather than hand-copied. Which entity, name and icon
-each tile shows is NOT set here: that's per device, in the device file's
-substitutions (b1_entity, b1_name, b1_icon ... b8_*).
+One project file per screen layout (see LAYOUTS):
+  ../light-panel.yaml            320x240 landscape, 8 tiles (4 x 2)   (CYD)
+  ../light-panel-480x320.yaml    480x320 landscape, 12 tiles (4 x 3)  (4" board)
+
+The tiles are identical apart from their number, so they're generated from
+one template here rather than hand-copied. Which entity, name and icon each
+tile shows is NOT set here: that's per device, in the device file's
+substitutions (b1_entity, b1_name, b1_icon, b2_...).
 
 Run from anywhere:  python projects/light-panel/tools/gen_light_panel.py
 
-  --demo   also write tools/demo/light-panel-demo.yaml: the same project, but
-           each tap toggles its tile locally (no HA needed), for testing the
-           layout and touch calibration on a bare board.
+  --demo   also write each layout's demo project into tools/demo/: the same
+           project, but each tap toggles its tile locally (no HA needed), for
+           testing the layout and touch calibration on a bare board.
 """
 import sys
 from pathlib import Path
@@ -17,10 +21,19 @@ from pathlib import Path
 from icon_set import ICON_SET
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE.parent / "light-panel.yaml"
-DEMO_OUT = HERE.parents[2] / "tools" / "demo" / "light-panel-demo.yaml"
-TILES = 8
+DEMO_DIR = HERE.parents[2] / "tools" / "demo"
 DEMO = "--demo" in sys.argv
+
+# Tiles are laid out left to right, top to bottom, `gap` px apart and from the
+# screen edges. `icon_y` is the icon's distance from the tile top.
+LAYOUTS = [
+    dict(file="light-panel", screen="320x240", cols=4, rows=2,
+         tile_w=75, tile_h=114, gap=4, icon_y=16, name_chars=9,
+         rotation="90             # landscape, USB sockets on the right"),
+    dict(file="light-panel-480x320", screen="480x320", cols=4, rows=3,
+         tile_w=115, tile_h=101, gap=4, icon_y=10, name_chars=13,
+         rotation="90             # landscape, USB socket on the right"),
+]
 
 # ---- icon catalogue for the font -------------------------------------------
 codepoints = [cp for _, icons in ICON_SET for _, cp in icons]
@@ -32,9 +45,19 @@ for group, icons in ICON_SET:
         glyph_lines.append(f'      - "\\U000{cp}"   # {cp}  mdi:{name}')
 glyph_list = "\n".join(glyph_lines)
 
-# ---- per-tile state sensors -------------------------------------------------
-texts = "\n".join(
-    f"""  - platform: homeassistant
+def build(L):
+    tiles = L["cols"] * L["rows"]
+    gap = L["gap"]
+    names = ["top"] + ["middle"] * (L["rows"] - 2) + ["bottom"]
+    row_text = ", ".join(
+        f"b{r * L['cols'] + 1}-b{(r + 1) * L['cols']} {name} row"
+        + (" left to right" if r == 0 else "")
+        for r, name in enumerate(names)
+    )
+
+    # ---- per-tile state sensors ---------------------------------------------
+    texts = "\n".join(
+        f"""  - platform: homeassistant
     id: st{i}
     entity_id: ${{b{i}_entity}}
     internal: true
@@ -44,20 +67,20 @@ texts = "\n".join(
           state:
             checked: !lambda 'return x == "on";'
             disabled: !lambda 'return x != "on" && x != "off";'"""
-    for i in range(1, TILES + 1)
-)
+        for i in range(1, tiles + 1)
+    )
 
-# ---- tiles ------------------------------------------------------------------
-widgets = []
-for i in range(1, TILES + 1):
-    col, row = (i - 1) % 4, (i - 1) // 4
-    widgets.append(f"""        - button:
+    # ---- tiles --------------------------------------------------------------
+    widgets = []
+    for i in range(1, tiles + 1):
+        col, row = (i - 1) % L["cols"], (i - 1) // L["cols"]
+        widgets.append(f"""        - button:
             id: btn{i}
             styles: tile
-            x: {4 + col * 79}
-            y: {4 + row * 118}
-            width: 75
-            height: 114
+            x: {gap + col * (L['tile_w'] + gap)}
+            y: {gap + row * (L['tile_h'] + gap)}
+            width: {L['tile_w']}
+            height: {L['tile_h']}
             state:
               disabled: true           # until HA reports the state
             pressed:
@@ -79,23 +102,23 @@ for i in range(1, TILES + 1):
             widgets:
               - label:
                   align: TOP_MID
-                  y: 16
+                  y: {L['icon_y']}
                   text_font: font_icons
                   text: "${{b{i}_icon}}"
               - label:
                   align: BOTTOM_MID
                   y: -10
-                  width: 71
+                  width: {L['tile_w'] - 4}
                   height: 20
                   long_mode: DOT
                   text_align: CENTER
                   text: "${{b{i}_name}}\"""")
-widgets = "\n".join(widgets)
+    widgets = "\n".join(widgets)
 
-yaml = f"""# =============================================================================
+    yaml = f"""# =============================================================================
 #  Project: light panel  (GENERATED by tools/gen_light_panel.py; edit that)
-#  8 touch tiles (4 x 2) that toggle Home Assistant lights and switches.
-#  Needs: a 320x240 landscape LVGL display (`tft`) with a calibrated
+#  {tiles} touch tiles ({L['cols']} x {L['rows']}) that toggle Home Assistant lights and switches.
+#  Needs: a {L['screen']} landscape LVGL display (`tft`) with a calibrated
 #  touchscreen `touch`, light `backlight`.
 #
 #  Tap a tile to toggle it (any light or switch). Tiles show the real state:
@@ -108,12 +131,12 @@ yaml = f"""# ===================================================================
 #  While it's off, the first tap only wakes it, so you can't switch a light
 #  by accident in the dark.
 #
-#  The device file sets each tile with three substitutions, b1..b8:
+#  The device file sets each tile with three substitutions, b1..b{tiles}:
 #    bN_entity   e.g. light.kitchen_light (any entity that can toggle)
-#    bN_name     about 9 characters max
+#    bN_name     about {L['name_chars']} characters max
 #    bN_icon     one of the 100 codes listed under `font:` below,
 #                e.g. "\\U000F0769" for mdi:ceiling-light
-#  Tiles: b1-b4 top row left to right, b5-b8 bottom row.
+#  Tiles: {row_text}.
 #
 #  HA side: in the ESPHome integration's options for the device, turn on
 #  "Allow the device to perform Home Assistant actions", or taps do nothing.
@@ -220,7 +243,7 @@ font:
 # =============================================================================
 lvgl:
   displays: tft
-  rotation: 90             # landscape, USB sockets on the right
+  rotation: {L['rotation']}
   buffer_size: 25%
   default_font: font_name
   # Screen off after the timeout. LVGL pauses, so the next tap only wakes it.
@@ -257,21 +280,26 @@ lvgl:
             pad_all: 8
 """
 
-OUT.write_text(yaml, encoding="utf-8")
-print(f"written {OUT} ({yaml.count(chr(10))} lines)")
+    out = HERE.parent / f"{L['file']}.yaml"
+    out.write_text(yaml, encoding="utf-8")
+    print(f"written {out} ({yaml.count(chr(10))} lines)")
 
-if DEMO:
-    # Same project, but tiles start enabled and toggle themselves on tap.
-    initial_state = """            state:
+    if DEMO:
+        # Same project, but tiles start enabled and toggle themselves on tap.
+        initial_state = """            state:
               disabled: true           # until HA reports the state
 """
-    assert yaml.count(initial_state) == TILES
-    demo = yaml.replace(initial_state, "            checkable: true            # DEMO: toggles locally\n")
-    demo = demo.replace(
-        "#  Project: light panel  (GENERATED by tools/gen_light_panel.py; edit that)",
-        "#  DEMO of the light panel project (GENERATED by gen_light_panel.py --demo).\n"
-        "#  Taps toggle tiles locally; nothing is sent anywhere useful. Test only.",
-    )
-    DEMO_OUT.parent.mkdir(parents=True, exist_ok=True)
-    DEMO_OUT.write_text(demo, encoding="utf-8")
-    print(f"written {DEMO_OUT}")
+        assert yaml.count(initial_state) == tiles
+        demo = yaml.replace(initial_state, "            checkable: true            # DEMO: toggles locally\n")
+        demo = demo.replace(
+            "#  Project: light panel  (GENERATED by tools/gen_light_panel.py; edit that)",
+            "#  DEMO of the light panel project (GENERATED by gen_light_panel.py --demo).\n"
+            "#  Taps toggle tiles locally; nothing is sent anywhere useful. Test only.",
+        )
+        demo_out = DEMO_DIR / f"{L['file']}-demo.yaml"
+        demo_out.write_text(demo, encoding="utf-8")
+        print(f"written {demo_out}")
+
+
+for L in LAYOUTS:
+    build(L)

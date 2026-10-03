@@ -59,7 +59,8 @@ Adding a new kind of hardware or a new purpose touches only its own folder.
 │   └── esp32-4in-st7796s.md
 ├── projects/
 │   ├── bus-display/            bus-display.yaml + README
-│   └── light-panel/            light-panel.yaml (generated) + README + tools/
+│   └── light-panel/            light-panel.yaml (CYD) and light-panel-480x320.yaml
+│                               (4"), both generated, + README + tools/
 ├── docs/
 │   └── troubleshooting.md      things that went wrong and how they were fixed
 └── tools/                      bring-up tools: serial log, config compare,

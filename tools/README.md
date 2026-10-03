@@ -114,6 +114,7 @@ plus fake data. So a demo always shows the current project, not a copy of it.
 |---|---|
 | [`cyd-bus-display-demo.yaml`](demo/cyd-bus-display-demo.yaml) | Cycles 10 scenarios every 6 s: on time, late, very late, timetable-only, last bus, due, early, overnight (and night brightness), stale, HA lost |
 | [`cyd-light-panel-demo.yaml`](demo/cyd-light-panel-demo.yaml) | 8 tiles that toggle locally, and every tap logged with its coordinates |
+| [`esp32-4in-light-panel-demo.yaml`](demo/esp32-4in-light-panel-demo.yaml) | The same on the 4" board: 12 tiles (4 × 3) |
 
 ```bash
 cd tools/demo
@@ -126,8 +127,9 @@ How they fake things:
 - **Data:** a demo `interval` calls `publish_state()` on the project's
   `homeassistant` sensors.
 - **Clock:** `settimeofday()` in the demo lambda sets a fixed time.
-- **Light panel:** `light-panel-demo.yaml` is generated alongside the real
-  project by `gen_light_panel.py --demo`, with checkable tiles.
+- **Light panel:** `light-panel-demo.yaml` and `light-panel-480x320-demo.yaml`
+  are generated alongside the real projects by `gen_light_panel.py --demo`,
+  with checkable tiles.
 - **Secrets:** [`demo/secrets.yaml`](demo/secrets.yaml) holds **dummy**
   values and is committed on purpose. Wi-Fi fails to connect and the board
   falls back to its hotspot, which is fine for a demo.

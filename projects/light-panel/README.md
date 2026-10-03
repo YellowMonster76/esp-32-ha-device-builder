@@ -1,14 +1,18 @@
 # Project: light panel
 
-[`light-panel.yaml`](light-panel.yaml): 8 touch tiles (4 × 2) that toggle
-Home Assistant lights and switches, with each tile showing the entity's
-real state.
+Touch tiles that toggle Home Assistant lights and switches, with each tile
+showing the entity's real state. One file per screen size; they behave the
+same:
 
-**Needs from the board:** a 320×240 landscape LVGL display `tft`, a
-**calibrated** touchscreen `touch`, light `backlight`. Used by
-[`cyd-light-panel`](../../cyd-light-panel.yaml).
+| File | Screen | Tiles | Used by |
+|---|---|---|---|
+| [`light-panel.yaml`](light-panel.yaml) | 320×240 landscape (CYD) | 8 (4 × 2) | [`cyd-light-panel`](../../cyd-light-panel.yaml) |
+| [`light-panel-480x320.yaml`](light-panel-480x320.yaml) | 480×320 landscape (4" ST7796S) | 12 (4 × 3) | [demo](../../tools/demo/esp32-4in-light-panel-demo.yaml) only, so far |
 
-> `light-panel.yaml` is **generated**. Edit
+**Needs from the board:** an LVGL display `tft` of that size, a
+**calibrated** touchscreen `touch`, light `backlight`.
+
+> Both files are **generated**. Edit
 > [`tools/gen_light_panel.py`](tools/gen_light_panel.py) or
 > [`tools/icon_set.py`](tools/icon_set.py), then run
 > `python projects/light-panel/tools/gen_light_panel.py`.
@@ -43,12 +47,13 @@ flashes grey).
 
 ## Setting the tiles (device file)
 
-Three substitutions per tile. `b1`–`b4` are the top row left to right, and
-`b5`–`b8` the bottom row:
+Three substitutions per tile, numbered left to right along each row, top row
+first: on the CYD `b1`–`b4` top and `b5`–`b8` bottom; on the 4" panel
+`b1`–`b4` top, `b5`–`b8` middle, `b9`–`b12` bottom.
 
 ```yaml
   b5_entity: light.kitchen_light
-  b5_name: "Kitchen"             # about 9 characters max
+  b5_name: "Kitchen"             # about 9 characters max (13 on the 4" panel)
   b5_icon: "\U000F04DE"          # mdi:stove
 ```
 
@@ -62,6 +67,21 @@ only once, or ESPHome fails with "Found duplicate glyphs".
 
 ## Layout
 
-Tiles are 75 × 114 px with 4 px gaps: columns at x = 4, 83, 162, 241 and rows
-at y = 4, 122. Icons are 56 px MDI, names 16 px Roboto. Tile count and
-positions live in the generator.
+| Layout | Tile size | Columns at x | Rows at y |
+|---|---|---|---|
+| 320×240 | 75 × 114 px | 4, 83, 162, 241 | 4, 122 |
+| 480×320 | 115 × 101 px | 4, 123, 242, 361 | 4, 109, 214 |
+
+4 px gaps. Icons are 56 px MDI, names 16 px Roboto, the same on both: the
+two screens have about the same pixel density, so they look the same size.
+Tile sizes live in the generator's `LAYOUTS` table; adding a screen size is a
+new entry there.
+
+## Tested
+
+- **320×240 (CYD):** in daily use on `cyd-light-panel` with HA.
+- **480×320 (4" ST7796S):** demo build on the real board, 2026-10-03. All 12
+  tiles toggled under the finger, names up to 13 characters fit ("Bedroom
+  heater" is cut off with "…"), and the screen timeout and wake-only first tap
+  work. **Not yet run with HA**: there's no device file for it until it gets
+  real entities.

@@ -1,0 +1,74 @@
+# =============================================================================
+#  DEMO build of the 12-tile light panel on the 4" ST7796S board: real board +
+#  the panel project with tiles that toggle locally, no Wi-Fi or HA needed.
+#  For checking the layout and touch calibration on a bare board: every tap
+#  logs its coordinates and the tile it hit ("Tapped <name>"), and the tile
+#  under your finger should toggle.
+#
+#  The project comes from light-panel-480x320-demo.yaml, generated alongside
+#  the real one by:  python projects/light-panel/tools/gen_light_panel.py --demo
+#
+#  Build/flash from this folder:  esphome run esp32-4in-light-panel-demo.yaml
+#  Watch taps:  python ../serial_log.py COM4 --grep "touch x=|Tapped"
+# =============================================================================
+
+substitutions:
+  name: esp32-4in-panel-demo
+  friendly_name: 4in Panel Demo
+  ha_connected: "true"        # hide the "not connected" banner
+
+  # Calibration: the board file's defaults (measured on our unit). Put a
+  # unit's own values here (see tools/touch-calibration).
+
+  # Placeholder tiles (entities don't matter in the demo). The longest name
+  # shows how much fits on a tile.
+  b1_entity: light.demo_1
+  b1_name: "Ceiling"
+  b1_icon: "\U000F0769"      # mdi:ceiling-light
+  b2_entity: light.demo_2
+  b2_name: "All lights"
+  b2_icon: "\U000F1253"      # mdi:lightbulb-group
+  b3_entity: light.demo_3
+  b3_name: "Floor lamp"
+  b3_icon: "\U000F08DD"      # mdi:floor-lamp
+  b4_entity: light.demo_4
+  b4_name: "Desk"
+  b4_icon: "\U000F095F"      # mdi:desk-lamp
+  b5_entity: light.demo_5
+  b5_name: "LED strip"
+  b5_icon: "\U000F1051"      # mdi:led-strip-variant
+  b6_entity: light.demo_6
+  b6_name: "Fairy lights"
+  b6_icon: "\U000F12BA"      # mdi:string-lights
+  b7_entity: light.demo_7
+  b7_name: "Garden"
+  b7_icon: "\U000F1054"      # mdi:outdoor-lamp
+  b8_entity: light.demo_8
+  b8_name: "Lamp"
+  b8_icon: "\U000F06B5"      # mdi:lamp
+  b9_entity: switch.demo_9
+  b9_name: "Radio"
+  b9_icon: "\U000F0439"      # mdi:radio
+  b10_entity: switch.demo_10
+  b10_name: "Kettle"
+  b10_icon: "\U000F05FA"     # mdi:kettle
+  b11_entity: switch.demo_11
+  b11_name: "Coffee maker"
+  b11_icon: "\U000F109F"     # mdi:coffee-maker
+  b12_entity: switch.demo_12
+  b12_name: "Bedroom heater"
+  b12_icon: "\U000F07E8"     # mdi:power-socket-uk
+
+packages:
+  base: !include ../../common/base.yaml
+  board: !include ../../boards/esp32-4in-st7796s.yaml
+  project: !include light-panel-480x320-demo.yaml
+
+api:
+  encryption:
+    key: !secret demo_api_key
+
+wifi:
+  ap:
+    ssid: "4in Demo"
+    password: !secret demo_fallback_password

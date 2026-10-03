@@ -63,7 +63,8 @@ python tools/serial_log.py COM4 --seconds 60 --grep "touch x=|Tapped"
 ```
 
 - By default it opens the port **without resetting** the board (DTR/RTS held
-  off). Add `--reset` to restart it and capture the boot log.
+  off). Add `--reset` to restart it (an RTS pulse, as esptool does) and
+  capture the boot log.
 - `--out file.log` also saves the lines.
 - Only one program can hold the port. Close it before flashing, or the upload
   fails with "port is busy".
@@ -85,17 +86,24 @@ fine).
 
 ## touch-calibration/
 
-For resistive panels, which vary unit to unit. Full steps are in the header of
-[`cyd-touch-calibration.yaml`](touch-calibration/cyd-touch-calibration.yaml):
+For resistive panels, which vary unit to unit. One firmware per board, with
+full steps in its header:
+
+| Board | Calibration firmware | `--board` | Hold it | Check with |
+|---|---|---|---|---|
+| CYD | [`cyd-touch-calibration.yaml`](touch-calibration/cyd-touch-calibration.yaml) | `cyd` (default) | landscape, USB on the right | the light-panel demo |
+| 4" ST7796S | [`esp32-4in-touch-calibration.yaml`](touch-calibration/esp32-4in-touch-calibration.yaml) | `esp32-4in` | portrait, USB at the bottom | [`esp32-4in-touch-check.yaml`](touch-calibration/esp32-4in-touch-check.yaml) |
 
 1. Flash it: test card on screen, no Wi-Fi.
 2. Log taps with `serial_log.py ... --grep raw_x= --out taps.log`.
-3. Tap near the four corners, then the centre (USB on the right).
-4. `python tools/touch-calibration/calc_calibration.py taps.log` prints the
-   four `touch_*` substitutions and where the centre tap lands, as a check.
+3. Tap near the four corners, then the centre.
+4. `python tools/touch-calibration/calc_calibration.py taps.log --board <board>`
+   prints the four `touch_*` substitutions and where the centre tap lands, as
+   a check.
 
-Then confirm with the light-panel demo: each tap should hit the tile under
-your finger.
+Then confirm: each tap should hit the tile or button under your finger. The
+4" touch check is the real board package plus a 3×3 button grid that logs
+`HIT <name>`.
 
 ## demo/
 

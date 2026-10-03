@@ -1,0 +1,113 @@
+# =============================================================================
+#  Board: 4" ESP32 display, 320x480 ST7796S, resistive touch
+#  ("ESP32-32E" 4.0" LCD Display; module ESP32-32E N4: 4 MB flash, no PSRAM).
+#  XPT2046 touch SHARES the display's SPI bus, backlight on GPIO27, RGB LED.
+#  Notes, pinout and quirks: esp32-4in-st7796s.md
+#
+#  IDs other files can use:
+#    tft (display), touch (touchscreen), backlight (light), rgb_led (light),
+#    tft_spi (spi, display and touch), backlight_pwm, led_r/g/b (outputs)
+#
+#  Per-device settings (override in the device file's substitutions):
+#    touch_x_min / touch_x_max / touch_y_min / touch_y_max   calibration
+#
+#  Portrait (USB at the bottom) is LVGL `rotation: 0`; landscape with the USB
+#  on the right is `rotation: 90`. Touch follows either with no extra setting.
+# =============================================================================
+
+substitutions:
+  # ---- Touch calibration (raw XPT2046 readings at the screen edges) --------
+  # Measured on our unit. Measure each unit if it has touch targets: see
+  # esp32-4in-st7796s.md, "Calibrating touch".
+  touch_x_min: "109"
+  touch_x_max: "4034"
+  touch_y_min: "140"
+  touch_y_max: "3984"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# ONE SPI bus, shared by the display and the touch controller (separate CS).
+spi:
+  - id: tft_spi
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12       # strapping pin (harmless warning)
+
+display:
+  - platform: mipi_spi
+    id: tft
+    # No board preset in ESPHome; the generic ST7796 model's defaults (BGR,
+    # no inversion, mirror_x) give correct colours and orientation here.
+    model: ST7796
+    spi_id: tft_spi
+    cs_pin: GPIO15
+    dc_pin:
+      number: GPIO2
+      ignore_strapping_warning: true
+    # The panel's reset is wired to the ESP32's EN, so no reset_pin.
+    data_rate: 40MHz
+    # LVGL does the drawing, so the display needs no update loop of its own.
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: tft_spi
+    cs_pin: GPIO33
+    interrupt_pin:         # touch IRQ. GPIO36 is input-only with no internal
+      number: GPIO36       # pull-up; the board has an external one.
+      mode: input
+    # Portrait, USB at the bottom: raw X runs left->right, raw Y runs
+    # bottom->top. ESPHome wants min < max, so Y is flipped here instead.
+    calibration:
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
+    transform:
+      mirror_y: true
+
+output:
+  # Backlight, PWM so it can dim.
+  - platform: ledc
+    pin: GPIO27
+    id: backlight_pwm
+    frequency: 5000Hz
+  # RGB LED: active LOW (pin low = LED on), hence inverted.
+  - platform: ledc
+    pin: GPIO22
+    id: led_r
+    inverted: true
+  - platform: ledc
+    pin: GPIO16
+    id: led_g
+    inverted: true
+  - platform: ledc
+    pin: GPIO17
+    id: led_b
+    inverted: true
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    # Always on at boot, and linear so a percentage is real PWM duty. Same
+    # reasons as the CYD (see cyd-2432s028.md, quirks).
+    restore_mode: ALWAYS_ON
+    default_transition_length: 1s
+    gamma_correct: 1.0
+
+  # Off at boot and nothing on the device turns it on; it's exposed to HA in
+  # case you want to automate it.
+  - platform: rgb
+    id: rgb_led
+    name: Status LED
+    red: led_r
+    green: led_g
+    blue: led_b
+    restore_mode: ALWAYS_OFF

@@ -31,10 +31,16 @@ a = p.parse_args()
 
 s = serial.Serial()
 s.port, s.baudrate, s.timeout = a.port, a.baud, 0.2
-if not a.reset:
-    s.dtr = False   # set before open(), so the auto-reset circuit isn't triggered
-    s.rts = False
+s.dtr = False   # set before open(), so the auto-reset circuit isn't triggered
+s.rts = False
 s.open()
+if a.reset:
+    # RTS alone pulls EN low; DTR stays off so GPIO0 is high (normal boot, not
+    # the bootloader). Just opening the port asserts both, which on some
+    # boards does nothing.
+    s.rts = True
+    time.sleep(0.1)
+    s.rts = False
 pat = re.compile(a.grep) if a.grep else None
 out = open(a.out, "a", encoding="utf-8", buffering=1) if a.out else None
 start, rest, count = time.time(), "", 0

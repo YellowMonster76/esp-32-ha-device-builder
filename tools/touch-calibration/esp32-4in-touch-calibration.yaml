@@ -1,0 +1,76 @@
+# =============================================================================
+#  Touch calibration firmware for the 4" ST7796S board (esp32-4in-st7796s)
+#
+#  Standalone on purpose: no Wi-Fi, no HA, no LVGL. The screen shows ESPHome's
+#  test card, which also confirms the display colours. Every touch is logged
+#  with its raw XPT2046 reading.
+#
+#  1. Flash:      esphome run esp32-4in-touch-calibration.yaml --device COM4
+#  2. Log taps:   python ../serial_log.py COM4 --grep raw_x= --out taps.log
+#  3. Portrait, USB socket at the bottom (the test card reads the right way
+#     up), tap with a fingernail about 5 mm in from each corner, a second
+#     apart: top-left, top-right, bottom-right, bottom-left, then the centre.
+#  4. Compute:    python calc_calibration.py taps.log --board esp32-4in
+#  5. Put the four values in the device file's substitutions.
+#  6. Check:      flash esp32-4in-touch-check.yaml with them.
+#
+#  Pins match boards/esp32-4in-st7796s.yaml.
+# =============================================================================
+
+esphome:
+  name: esp32-4in-touchcal
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+# Display and touch share one bus.
+spi:
+  - id: tft_spi
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+
+output:
+  - platform: ledc
+    pin: GPIO27
+    id: bl_out
+
+light:
+  - platform: monochromatic
+    output: bl_out
+    name: Backlight
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: mipi_spi
+    id: tft
+    model: ST7796
+    spi_id: tft_spi
+    cs_pin: GPIO15
+    dc_pin:
+      number: GPIO2
+      ignore_strapping_warning: true
+    show_test_card: true
+
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: tft_spi
+    cs_pin: GPIO33
+    interrupt_pin:
+      number: GPIO36
+      mode: input
+    display: tft
+    calibration:          # full raw range: we only want the raw values
+      x_min: 0
+      x_max: 4095
+      y_min: 0
+      y_max: 4095
+    on_touch:
+      - lambda: |-
+          ESP_LOGI("cal", "TOUCH raw_x=%d raw_y=%d", touch.x_raw, touch.y_raw);

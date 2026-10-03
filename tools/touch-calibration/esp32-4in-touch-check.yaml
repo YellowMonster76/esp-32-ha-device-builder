@@ -1,0 +1,54 @@
+# =============================================================================
+#  Touch check for the 4" ST7796S board: the real board package plus a 3x3
+#  grid of LVGL buttons. No Wi-Fi or HA. Each tap should highlight the button
+#  under your finger and log "HIT <name>".
+#
+#    esphome run esp32-4in-touch-check.yaml --device COM4
+#    python ../serial_log.py COM4 --grep "HIT|TOUCH"
+#
+#  `rot` 0 = portrait, USB at the bottom; 90 = landscape, USB on the right.
+#  Put a unit's own calibration in the substitutions to check it.
+# =============================================================================
+
+substitutions:
+  rot: "90"
+
+esphome:
+  name: esp32-4in-touchcheck
+
+packages:
+  board: !include ../../boards/esp32-4in-st7796s.yaml
+
+logger:
+  level: INFO
+
+touchscreen:
+  - id: !extend touch
+    on_touch:
+      - lambda: |-
+          ESP_LOGI("cal", "TOUCH x=%d y=%d raw_x=%d raw_y=%d", touch.x, touch.y, touch.x_raw, touch.y_raw);
+
+lvgl:
+  displays: tft
+  rotation: ${rot}
+  buffer_size: 25%
+  pages:
+    - id: grid_page
+      bg_color: 0x000000
+      pad_all: 6
+      layout:
+        type: grid
+        grid_rows: [fr(1), fr(1), fr(1)]
+        grid_columns: [fr(1), fr(1), fr(1)]
+        pad_row: 6
+        pad_column: 6
+      widgets:
+        - button: {grid_cell_row_pos: 0, grid_cell_column_pos: 0, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT top-left"}}, widgets: [label: {text: "top-left", align: center}]}
+        - button: {grid_cell_row_pos: 0, grid_cell_column_pos: 1, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT top-middle"}}, widgets: [label: {text: "top-middle", align: center}]}
+        - button: {grid_cell_row_pos: 0, grid_cell_column_pos: 2, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT top-right"}}, widgets: [label: {text: "top-right", align: center}]}
+        - button: {grid_cell_row_pos: 1, grid_cell_column_pos: 0, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT middle-left"}}, widgets: [label: {text: "middle-left", align: center}]}
+        - button: {grid_cell_row_pos: 1, grid_cell_column_pos: 1, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT centre"}}, widgets: [label: {text: "centre", align: center}]}
+        - button: {grid_cell_row_pos: 1, grid_cell_column_pos: 2, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT middle-right"}}, widgets: [label: {text: "middle-right", align: center}]}
+        - button: {grid_cell_row_pos: 2, grid_cell_column_pos: 0, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT bottom-left"}}, widgets: [label: {text: "bottom-left", align: center}]}
+        - button: {grid_cell_row_pos: 2, grid_cell_column_pos: 1, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT bottom-middle"}}, widgets: [label: {text: "bottom-middle", align: center}]}
+        - button: {grid_cell_row_pos: 2, grid_cell_column_pos: 2, grid_cell_x_align: stretch, grid_cell_y_align: stretch, on_press: {logger.log: {level: INFO, tag: hit, format: "HIT bottom-right"}}, widgets: [label: {text: "bottom-right", align: center}]}

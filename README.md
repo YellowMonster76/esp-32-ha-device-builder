@@ -32,7 +32,7 @@ Adding a new kind of hardware or a new purpose touches only its own folder.
 | Board | Chip | Display | Touch | Status | Bought from | Case |
 |---|---|---|---|---|---|---|
 | [CYD ESP32-2432S028R](boards/cyd-2432s028.md) | ESP32-WROOM-32 | 2.8" 320×240 ST7789V | resistive (XPT2046) | **tested**, 2 in use | Amazon UK | [Printables 744864](https://www.printables.com/model/744864-esp32-cheap-yellow-display-usb-c-version-enclosure), printed and tested (USB-C version) |
-| [4" ESP32 ST7796S](boards/esp32-4in-st7796s.md) | ESP32-WROOM-32E | 4.0" 320×480 ST7796S | resistive | **on order**, not yet tested | AliExpress | none yet |
+| [4" ESP32 ST7796S](boards/esp32-4in-st7796s.md) | ESP32-32E N4 (ESP32-D0WD-V3) | 4.0" 320×480 ST7796S | resistive (XPT2046), shares the display bus | **tested** (display, touch, backlight, LED), 1 unit, no device yet | AliExpress | none yet |
 
 ## Devices
 
@@ -54,7 +54,9 @@ Adding a new kind of hardware or a new purpose touches only its own folder.
 │   └── base.yaml               shared by every device: name, logger, OTA, Wi-Fi
 ├── boards/
 │   ├── cyd-2432s028.yaml       hardware package
-│   └── cyd-2432s028.md         pinout, revisions, quirks, calibration
+│   ├── cyd-2432s028.md         pinout, revisions, quirks, calibration
+│   ├── esp32-4in-st7796s.yaml  4" ST7796S board package
+│   └── esp32-4in-st7796s.md
 ├── projects/
 │   ├── bus-display/            bus-display.yaml + README
 │   └── light-panel/            light-panel.yaml (generated) + README + tools/

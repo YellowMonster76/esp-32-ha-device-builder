@@ -12,6 +12,7 @@ are in each board's notes (e.g. [CYD](../boards/cyd-2432s028.md)).
 | "Could not open COM4, the port is busy" | Something else has the port open (a serial monitor, another flash). Close it. |
 | ESP-IDF install fails with "MSys/Mingw is not supported" (local builds) | Run `esphome` from PowerShell or cmd, not Git Bash. |
 | Local build fails on long paths (Windows) | Build from a short path such as `C:\build`. |
+| `serial_log.py --reset` captures nothing, not even the boot banner | Older versions opened the port with DTR and RTS both asserted, which doesn't reset every board (it didn't reset the 4" ST7796S). Fixed: it now pulses RTS alone, as esptool does. |
 
 ## Pairing and Home Assistant
 
@@ -30,6 +31,7 @@ are in each board's notes (e.g. [CYD](../boards/cyd-2432s028.md)).
 | White, inverted or garbage screen | Wrong display controller for the board revision. Change the board's `display_model`. |
 | "use of 'rotation' in the display config is not compatible with LVGL" | Set `rotation:` under `lvgl:`, not under `display:`. |
 | Taps hit the mirror-image position (top ↔ bottom) | Touch transform: on the CYD with LVGL rotation 90, `mirror_x: true`. |
+| "y_min must be smaller than y_max" (or x) in `calibration:` | That raw axis runs the opposite way to the screen. Keep min < max and flip it with `transform: mirror_y: true` (or `mirror_x`). The 4" ST7796S board needs `mirror_y`. |
 | Text wraps instead of truncating with "…" | LVGL `long_mode: DOT` only truncates when the label has a fixed `height`. |
 | Big text overlapping other widgets | Measure the widest string it can show (e.g. "Due", "~25", "99+") and switch to a smaller font for it. |
 | `pressed:` / `checked:` "invalid option for style_definitions" | State styles go on the widget itself, not in `style_definitions`. |

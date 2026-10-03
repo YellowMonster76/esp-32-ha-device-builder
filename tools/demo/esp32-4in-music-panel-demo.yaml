@@ -1,0 +1,83 @@
+# =============================================================================
+#  DEMO build of the music panel on the 4" ST7796S board: real board + project,
+#  with made-up favourites instead of Music Assistant's, no Wi-Fi or HA
+#  needed. For checking the layout, scrolling and touch on a bare board.
+#
+#  - The tabs show fake radio stations, playlists and albums (albums has
+#    enough to scroll, and long names to check the "..." cut-off).
+#  - Tapping a favourite logs "Play <media id> on speaker N".
+#  - Speaker 1 pretends to be playing, speaker 2 paused, the others idle.
+#
+#  Build/flash from this folder:  esphome run esp32-4in-music-panel-demo.yaml
+#  Watch taps:  python ../serial_log.py COM4 --grep "Play |touch"
+# =============================================================================
+
+substitutions:
+  name: esp32-4in-music-demo
+  friendly_name: 4in Music Demo
+  ha_connected: "true"        # hide the "not connected" banner
+
+packages:
+  base: !include ../../common/base.yaml
+  board: !include ../../boards/esp32-4in-st7796s.yaml
+  project: !include ../../projects/music-panel/music-panel.yaml
+
+api:
+  encryption:
+    key: !secret demo_api_key
+
+wifi:
+  ap:
+    ssid: "4in Music Demo"
+    password: !secret demo_fallback_password
+
+esphome:
+  on_boot:
+    priority: -200
+    then:
+      - delay: 1s
+      - lambda: |-
+          id(sp1_state).publish_state("playing");
+          id(sp1_title).publish_state("Stuck On The Puzzle");
+          id(sp1_artist).publish_state("Alex Turner");
+          id(sp1_vol).publish_state(0.35f);
+          id(sp2_state).publish_state("paused");
+          id(sp2_title).publish_state("Lazarus");
+          id(sp2_artist).publish_state("David Bowie");
+          id(sp2_vol).publish_state(0.6f);
+          id(sp3_state).publish_state("idle");
+          id(sp3_vol).publish_state(0.2f);
+          id(sp5_state).publish_state("unavailable");
+          id(sp5_vol).publish_state(0.4f);
+          id(sp4_state).publish_state("off");
+          id(sp4_vol).publish_state(0.5f);
+      - script.execute: fetch
+
+# Instead of asking Music Assistant, show fixed lists in the same format HA
+# sends: {"i": [[name, media id, artists], ...]}.
+# (The fake media ids avoid "//": ESPHome strips // comments from lambdas and
+# doesn't see that it's inside a raw string here. Real ids come from HA at
+# runtime, so they're not affected.)
+script:
+  - id: !extend fetch
+    then:
+      - lambda: |-
+          static const char *J[] = {
+            R"J({"i": [["BBC Radio 6 Music", "demo-radio-1", ""],
+                      ["Radio Gaga", "demo-radio-2", ""],
+                      ["Jazz FM", "demo-radio-3", ""],
+                      ["Classic FM", "demo-radio-4", ""],
+                      ["Radio Paradise – Main Mix", "demo-radio-5", ""]]})J",
+            R"J({"i": [["Sunday morning", "demo-playlist-1", ""],
+                      ["Kitchen disco", "demo-playlist-2", ""],
+                      ["500 random tracks (from library)", "demo-playlist-3", ""]]})J",
+            R"J({"i": [["I Should Coco", "demo-album-1", "Supergrass"],
+                      ["KIWANUKA", "demo-album-2", "Michael Kiwanuka"],
+                      ["Led Zeppelin II", "demo-album-3", "Led Zeppelin"],
+                      ["Face Your Fear", "demo-album-4", "Curtis Harding"],
+                      ["Héroes et café – a very long album name indeed", "demo-album-5", "Somebody, Somebody Else, And Friends"],
+                      ["When We Were Friends", "demo-album-6", "Barry Can’t Swim"],
+                      ["Black Pumas", "demo-album-7", "Black Pumas"],
+                      ["Migration", "demo-album-8", "Bonobo"]]})J",
+          };
+          id(show_items)->execute(std::string(J[id(tab)]));

@@ -1,0 +1,1198 @@
+# =============================================================================
+#  GENERATED single-file version of esp32-4in-music-panel.yaml.
+#  Paste the whole file into ESPHome Device Builder. Don't edit it here:
+#  edit the source files, then run `python tools/flatten.py`.
+#
+#  Built from:
+#    common/base.yaml
+#    boards/esp32-4in-st7796s.yaml
+#    projects/music-panel/music-panel.yaml
+#    esp32-4in-music-panel.yaml
+#
+#  Secrets it needs in Device Builder's secrets.yaml:
+#    music_4in_api_key
+#    music_4in_fallback_password
+#    wifi_password
+#    wifi_ssid
+# =============================================================================
+
+# =============================================================================
+#  Device: 4in Music Panel (Music Assistant)
+#  Board:   boards/esp32-4in-st7796s.yaml   (MAC 20:50:0d:1d:fe:8f (last 3 bytes randomised))
+#  Project: projects/music-panel
+#
+#  EXAMPLE SPEAKERS: the five players below are placeholders. Use your own
+#  Music Assistant players (any media_player from the Music Assistant
+#  integration, including MA groups), and your own MA config entry id.
+# =============================================================================
+
+
+# =============================================================================
+#  Shared by every device: identity, logging, OTA, Wi-Fi.
+#
+#  The device file must provide:
+#    substitutions: name, friendly_name
+#    api:  encryption: key: !secret <device>_api_key
+#    wifi: ap: ssid / password (the fallback hotspot)
+#  Those stay in the device file because they're per-unit, and !secret can't
+#  be driven by a substitution.
+# =============================================================================
+
+substitutions:
+  # --- from common/base.yaml ---
+  # C++ expression projects use for "is Home Assistant connected?". Demo builds
+  # (tools/demo) override it to fake a connection without HA.
+  ha_connected: "(api::global_api_server != nullptr && api::global_api_server->is_connected_with_state_subscription())"
+
+  # --- from boards/esp32-4in-st7796s.yaml ---
+  # ---- Touch calibration (raw XPT2046 readings at the screen edges) --------
+  # Measured on our unit. Measure each unit if it has touch targets: see
+  # esp32-4in-st7796s.md, "Calibrating touch".
+  touch_x_min: "109"
+  touch_x_max: "4034"
+  touch_y_min: "140"
+  touch_y_max: "3984"
+
+  # --- from projects/music-panel/music-panel.yaml ---
+  # ---- Music Assistant ------------------------------------------------------
+  # Your MA config entry: Developer tools -> Actions -> "Music Assistant: Get
+  # library", pick your instance, switch to YAML mode: config_entry_id.
+  ma_config_entry: "YOUR_MA_CONFIG_ENTRY_ID"  # set in esp32-4in-music-panel.yaml
+  fav_limit: "30"            # most favourites loaded per tab
+
+  # ---- The five speaker buttons (any MA player, including MA groups) --------
+  # Names wrap onto two lines; about 11 characters fit per line.
+  sp1_name: "Living Room Sync"  # set in esp32-4in-music-panel.yaml
+  sp1_entity: media_player.living_room_sync  # set in esp32-4in-music-panel.yaml
+  sp2_name: "Living Room"  # set in esp32-4in-music-panel.yaml
+  sp2_entity: media_player.living_room  # set in esp32-4in-music-panel.yaml
+  sp3_name: "NAD"  # set in esp32-4in-music-panel.yaml
+  sp3_entity: media_player.nad  # set in esp32-4in-music-panel.yaml
+  sp4_name: "Kitchen"  # set in esp32-4in-music-panel.yaml
+  sp4_entity: media_player.kitchen  # set in esp32-4in-music-panel.yaml
+  sp5_name: "Utility Room"  # set in esp32-4in-music-panel.yaml
+  sp5_entity: media_player.utility_room  # set in esp32-4in-music-panel.yaml
+
+  # --- from esp32-4in-music-panel.yaml ---
+  name: esp32-4in-music-panel
+  friendly_name: 4in Music Panel
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+  # (from projects/music-panel/music-panel.yaml)
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: show_connection
+      - script.execute: show_selection
+      - script.execute: show_now_playing
+
+logger:
+  level: INFO
+
+# OTA uploads are encrypted and authenticated with the device's API key (an
+# empty `encryption:` block means "use the api key"), so no OTA password.
+ota:
+  - platform: esphome
+    encryption: {}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # If Wi-Fi fails, the device starts its own hotspot (ssid/password set in the
+  # device file). Join it and browse to 192.168.4.1 to enter new Wi-Fi details.
+
+  # (from esp32-4in-music-panel.yaml)
+  ap:
+    ssid: "4in Music Fallback"
+    password: !secret music_4in_fallback_password
+
+captive_portal:
+
+
+# =============================================================================
+#  Board: 4" ESP32 display, 320x480 ST7796S, resistive touch
+#  ("ESP32-32E" 4.0" LCD Display; module ESP32-32E N4: 4 MB flash, no PSRAM).
+#  XPT2046 touch SHARES the display's SPI bus, backlight on GPIO27, RGB LED.
+#  Notes, pinout and quirks: esp32-4in-st7796s.md
+#
+#  IDs other files can use:
+#    tft (display), touch (touchscreen), backlight (light), rgb_led (light),
+#    tft_spi (spi, display and touch), backlight_pwm, led_r/g/b (outputs)
+#
+#  Per-device settings (override in the device file's substitutions):
+#    touch_x_min / touch_x_max / touch_y_min / touch_y_max   calibration
+#
+#  Portrait (USB at the bottom) is LVGL `rotation: 0`; landscape with the USB
+#  on the right is `rotation: 90`. Touch follows either with no extra setting.
+# =============================================================================
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# ONE SPI bus, shared by the display and the touch controller (separate CS).
+spi:
+  - id: tft_spi
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12       # strapping pin (harmless warning)
+
+display:
+  - platform: mipi_spi
+    id: tft
+    # No board preset in ESPHome; the generic ST7796 model's defaults (BGR,
+    # no inversion, mirror_x) give correct colours and orientation here.
+    model: ST7796
+    spi_id: tft_spi
+    cs_pin: GPIO15
+    dc_pin:
+      number: GPIO2
+      ignore_strapping_warning: true
+    # The panel's reset is wired to the ESP32's EN, so no reset_pin.
+    data_rate: 40MHz
+    # LVGL does the drawing, so the display needs no update loop of its own.
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: tft_spi
+    cs_pin: GPIO33
+    interrupt_pin:         # touch IRQ. GPIO36 is input-only with no internal
+      number: GPIO36       # pull-up; the board has an external one.
+      mode: input
+    # Portrait, USB at the bottom: raw X runs left->right, raw Y runs
+    # bottom->top. ESPHome wants min < max, so Y is flipped here instead.
+    calibration:
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
+    transform:
+      mirror_y: true
+    # (from projects/music-panel/music-panel.yaml)
+    on_release:
+      # While the screen is off LVGL is paused and ignores touches, so this
+      # tap only wakes the screen.
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+            - light.turn_on: backlight
+
+output:
+  # Backlight, PWM so it can dim.
+  - platform: ledc
+    pin: GPIO27
+    id: backlight_pwm
+    frequency: 5000Hz
+  # RGB LED: active LOW (pin low = LED on), hence inverted.
+  - platform: ledc
+    pin: GPIO22
+    id: led_r
+    inverted: true
+  - platform: ledc
+    pin: GPIO16
+    id: led_g
+    inverted: true
+  - platform: ledc
+    pin: GPIO17
+    id: led_b
+    inverted: true
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    # Always on at boot, and linear so a percentage is real PWM duty. Same
+    # reasons as the CYD (see cyd-2432s028.md, quirks).
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0.3s  # set in projects/music-panel/music-panel.yaml
+    gamma_correct: 1.0
+
+  # Off at boot and nothing on the device turns it on; it's exposed to HA in
+  # case you want to automate it.
+  - platform: rgb
+    id: rgb_led
+    name: Status LED
+    red: led_r
+    green: led_g
+    blue: led_b
+    restore_mode: ALWAYS_OFF
+
+
+# =============================================================================
+#  Project: music panel (Music Assistant)
+#  Pick a speaker or group, pick one of your Music Assistant favourites
+#  (radio, playlists, albums), and it plays there. Shows what's playing on the
+#  chosen speaker, with previous / play-pause / next and volume.
+#  Needs: a 480x320 landscape LVGL display (`tft`), a calibrated touchscreen
+#  `touch`, light `backlight`.
+#
+#  Screen (landscape, 480x320):
+#    +----------------------------------------------+
+#    | [Living ][Living ][ NAD  ][Kitchen][Utility]|  where to play
+#    | [Room Sy][ Room  ][      ][       ][ Room  ]|  (speakers, groups)
+#    | [ Radio ]    [ Playlists ]    [ Albums ]     |  which favourites
+#    | +--------------------+ +-------------------+ |
+#    | | BBC Radio 6 Music  | | I Should Coco     | |  your MA favourites,
+#    | |                    | | Supergrass        | |  fetched live (scrolls)
+#    | +--------------------+ +-------------------+ |
+#    | Song title     |<< >|| [] >>|  [vol 35%]   |  now playing; the volume
+#    |                                              |  button opens a big panel
+#    | Artist                                       |
+#    +----------------------------------------------+
+#
+#  The favourites come from Music Assistant itself (music_assistant.
+#  get_library, favourite: true), so heart something in MA and it appears
+#  here the next time you open that tab. No reflash.
+#
+#  HA side: tick "Allow the device to perform Home Assistant actions" in the
+#  ESPHome integration's options for the device, or nothing loads or plays.
+# =============================================================================
+
+api:
+  on_client_connected:
+    - script.execute: show_connection
+    - delay: 2s                # let the state subscriptions settle first
+    - script.execute: fetch
+  on_client_disconnected:
+    - script.execute: show_connection
+
+  # (from esp32-4in-music-panel.yaml)
+  encryption:
+    key: !secret music_4in_api_key
+
+number:
+  - platform: template
+    id: screen_timeout
+    name: Screen timeout
+    icon: mdi:timer-outline
+    unit_of_measurement: s
+    min_value: 10
+    max_value: 600
+    step: 10
+    initial_value: 60
+    optimistic: true
+    restore_value: true
+    entity_category: config
+
+globals:
+  - id: sel                    # which speaker button is chosen (0-based)
+    type: int
+    restore_value: true
+    initial_value: "0"
+  - id: tab                    # 0 radio, 1 playlists, 2 albums
+    type: int
+    restore_value: true
+    initial_value: "0"
+  - id: uris                   # media id of each favourite on screen
+    type: std::vector<std::string>
+  - id: dragging_volume        # don't move the slider under the finger
+    type: bool
+    initial_value: "false"
+
+# =============================================================================
+#  Speaker states from Home Assistant (only the chosen one is shown)
+# =============================================================================
+text_sensor:
+  - platform: homeassistant
+    id: sp1_state
+    entity_id: ${sp1_entity}
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 0;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp1_title
+    entity_id: ${sp1_entity}
+    attribute: media_title
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 0;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp1_artist
+    entity_id: ${sp1_entity}
+    attribute: media_artist
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 0;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp2_state
+    entity_id: ${sp2_entity}
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 1;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp2_title
+    entity_id: ${sp2_entity}
+    attribute: media_title
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 1;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp2_artist
+    entity_id: ${sp2_entity}
+    attribute: media_artist
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 1;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp3_state
+    entity_id: ${sp3_entity}
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 2;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp3_title
+    entity_id: ${sp3_entity}
+    attribute: media_title
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 2;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp3_artist
+    entity_id: ${sp3_entity}
+    attribute: media_artist
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 2;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp4_state
+    entity_id: ${sp4_entity}
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 3;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp4_title
+    entity_id: ${sp4_entity}
+    attribute: media_title
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 3;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp4_artist
+    entity_id: ${sp4_entity}
+    attribute: media_artist
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 3;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp5_state
+    entity_id: ${sp5_entity}
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 4;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp5_title
+    entity_id: ${sp5_entity}
+    attribute: media_title
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 4;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp5_artist
+    entity_id: ${sp5_entity}
+    attribute: media_artist
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 4;'
+          then:
+            - script.execute: show_now_playing
+
+sensor:
+  - platform: homeassistant
+    id: sp1_vol
+    entity_id: ${sp1_entity}
+    attribute: volume_level
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 0;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp2_vol
+    entity_id: ${sp2_entity}
+    attribute: volume_level
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 1;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp3_vol
+    entity_id: ${sp3_entity}
+    attribute: volume_level
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 2;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp4_vol
+    entity_id: ${sp4_entity}
+    attribute: volume_level
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 3;'
+          then:
+            - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp5_vol
+    entity_id: ${sp5_entity}
+    attribute: volume_level
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(sel) == 4;'
+          then:
+            - script.execute: show_now_playing
+
+interval:
+  - interval: 5s
+    then:
+      - script.execute: show_connection
+
+# =============================================================================
+#  Logic
+# =============================================================================
+script:
+  # Ask Music Assistant for this tab's favourites. HA trims the answer to
+  # [name, media id, artists] per item (response_template) before sending it,
+  # so the board only parses a few hundred bytes.
+  - id: fetch
+    mode: restart
+    then:
+      - lambda: |-
+          lv_obj_clean(id(fav_list));
+          lv_obj_t *l = lv_label_create(id(fav_list));
+          lv_label_set_text(l, "Loading...");
+          lv_obj_set_style_text_color(l, lv_color_hex(0x9A9A9A), 0);
+      - homeassistant.action:
+          action: music_assistant.get_library
+          data:
+            config_entry_id: ${ma_config_entry}
+            media_type: !lambda 'static const char *T[] = {"radio", "playlist", "album"}; return T[id(tab)];'
+            favorite: "true"
+            order_by: name
+            limit: ${fav_limit}
+          capture_response: true
+          response_template: >-
+            {% set ns = namespace(i=[]) %}{% for x in response['items'] %}{% set ns.i = ns.i + [[x.name[:48], x.uri, ((x.artists | default([])) | map(attribute='name') | join(', '))[:40]]] %}{% endfor %}{{ {'i': ns.i} | tojson }}
+          on_success:
+            - lambda: |-
+                // HA sends {"response": <rendered template>}. Normally that's
+                // an object; if HA ever passes it through as text, parse it.
+                JsonVariantConst r = response["response"];
+                std::string s;
+                if (r.is<const char *>()) s = r.as<const char *>();
+                else serializeJson(r, s);
+                id(show_items)->execute(s);
+          on_error:
+            - lambda: |-
+                lv_obj_clean(id(fav_list));
+                lv_obj_t *l = lv_label_create(id(fav_list));
+                lv_label_set_text(l, ("Couldn't load favourites:\n" + std::string(error.c_str())).c_str());
+                lv_obj_set_width(l, 440);
+                lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+                lv_obj_set_style_text_color(l, lv_color_hex(0xDC2626), 0);
+                ESP_LOGW("music", "get_library failed: %s", error.c_str());
+
+  # Fill the list from {"i": [[name, uri, artists], ...]}. One button per
+  # favourite, made here because the number changes.
+  - id: show_items
+    parameters:
+      json: string
+    then:
+      - lambda: |-
+          lv_obj_t *list = id(fav_list);
+          lv_obj_clean(list);
+          id(uris).clear();
+          JsonDocument doc;
+          if (deserializeJson(doc, json)) {
+            lv_obj_t *l = lv_label_create(list);
+            lv_label_set_text(l, "Couldn't read the list from HA");
+            return;
+          }
+          for (JsonArrayConst it : doc["i"].as<JsonArrayConst>()) {
+            const char *name = it[0] | "";
+            const char *uri = it[1] | "";
+            const char *sub = it[2] | "";
+            intptr_t idx = id(uris).size();
+            id(uris).push_back(uri);
+            lv_obj_t *b = lv_button_create(list);
+            lv_obj_set_size(b, 226, 50);
+            lv_obj_set_pos(b, (idx % 2) * 236, (idx / 2) * 56);   // two columns
+            lv_obj_set_style_bg_color(b, lv_color_hex(0x1E1E1E), 0);
+            lv_obj_set_style_bg_color(b, lv_color_hex(0x3A3A3A), LV_STATE_PRESSED);
+            lv_obj_set_style_radius(b, 8, 0);
+            lv_obj_set_style_shadow_width(b, 0, 0);
+            lv_obj_set_style_pad_all(b, 4, 0);
+            lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+            lv_obj_t *t = lv_label_create(b);
+            lv_label_set_text(t, name);
+            lv_obj_set_size(t, 214, 21);   // fixed height, or DOT wraps instead
+            lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+            lv_obj_set_style_text_color(t, lv_color_hex(0xE5E5E5), 0);
+            lv_obj_align(t, *sub ? LV_ALIGN_TOP_LEFT : LV_ALIGN_LEFT_MID, 2, 0);
+            if (*sub) {
+              lv_obj_t *a = lv_label_create(b);
+              lv_label_set_text(a, sub);
+              lv_obj_set_size(a, 214, 21);
+              lv_label_set_long_mode(a, LV_LABEL_LONG_DOT);
+              lv_obj_set_style_text_color(a, lv_color_hex(0x8A8A8A), 0);
+              lv_obj_align(a, LV_ALIGN_BOTTOM_LEFT, 2, 0);
+            }
+            lv_obj_add_event_cb(b, [](lv_event_t *e) {
+              id(play_item)->execute((int) (intptr_t) lv_event_get_user_data(e));
+            }, LV_EVENT_CLICKED, (void *) idx);
+          }
+          if (id(uris).empty()) {
+            static const char *T[] = {"radio stations", "playlists", "albums"};
+            lv_obj_t *l = lv_label_create(list);
+            lv_label_set_text(l, (std::string("No favourite ") + T[id(tab)] +
+                                  " yet.\nHeart some in Music Assistant.").c_str());
+            lv_obj_set_style_text_color(l, lv_color_hex(0x9A9A9A), 0);
+          }
+          lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+
+  # Play favourite number `i` on the chosen speaker, replacing its queue.
+  - id: play_item
+    parameters:
+      i: int
+    then:
+      - if:
+          condition:
+            lambda: 'return i >= 0 && i < (int) id(uris).size();'
+          then:
+            - logger.log:
+                format: "Play %s on speaker %d"
+                args: ['id(uris)[i].c_str()', 'id(sel) + 1']
+                level: INFO
+            - homeassistant.action:
+                action: music_assistant.play_media
+                data:
+                  entity_id: !lambda 'static const char *E[] = {"${sp1_entity}", "${sp2_entity}", "${sp3_entity}", "${sp4_entity}", "${sp5_entity}"}; return std::string(E[id(sel)]);'
+                  media_id: !lambda 'return id(uris)[i];'
+                  media_type: !lambda 'static const char *T[] = {"radio", "playlist", "album"}; return T[id(tab)];'
+                  enqueue: replace
+
+  # Highlight the chosen speaker and tab.
+  - id: show_selection
+    then:
+      - lambda: |-
+          lv_obj_t *spk[] = {id(spk1), id(spk2), id(spk3), id(spk4), id(spk5)};
+          for (int i = 0; i < 5; i++) {
+            if (i == id(sel)) lv_obj_add_state(spk[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(spk[i], LV_STATE_CHECKED);
+          }
+          lv_obj_t *tabs[] = {id(tab_radio), id(tab_playlist), id(tab_album)};
+          for (int i = 0; i < 3; i++) {
+            if (i == id(tab)) lv_obj_add_state(tabs[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(tabs[i], LV_STATE_CHECKED);
+          }
+
+  # Now-playing bar for the chosen speaker.
+  - id: show_now_playing
+    then:
+      - lambda: |-
+          auto pick = [](int i) -> text_sensor::TextSensor * { switch (i) {
+            case 0: return id(sp1_state);
+            case 1: return id(sp2_state);
+            case 2: return id(sp3_state);
+            case 3: return id(sp4_state);
+            case 4: return id(sp5_state);
+            } return nullptr; };
+          auto pick_title = [](int i) -> text_sensor::TextSensor * { switch (i) {
+            case 0: return id(sp1_title);
+            case 1: return id(sp2_title);
+            case 2: return id(sp3_title);
+            case 3: return id(sp4_title);
+            case 4: return id(sp5_title);
+            } return nullptr; };
+          auto pick_artist = [](int i) -> text_sensor::TextSensor * { switch (i) {
+            case 0: return id(sp1_artist);
+            case 1: return id(sp2_artist);
+            case 2: return id(sp3_artist);
+            case 3: return id(sp4_artist);
+            case 4: return id(sp5_artist);
+            } return nullptr; };
+          auto pick_vol = [](int i) -> sensor::Sensor * { switch (i) {
+            case 0: return id(sp1_vol);
+            case 1: return id(sp2_vol);
+            case 2: return id(sp3_vol);
+            case 3: return id(sp4_vol);
+            case 4: return id(sp5_vol);
+            } return nullptr; };
+          static const char *NAMES[] = {"${sp1_name}", "${sp2_name}", "${sp3_name}", "${sp4_name}", "${sp5_name}"};
+          int i = id(sel);
+          std::string st = pick(i)->state;
+          bool active = st == "playing" || st == "paused" || st == "buffering";
+          auto ok = [](const std::string &s) { return !s.empty() && s != "unknown" && s != "None"; };
+          std::string title = pick_title(i)->state, artist = pick_artist(i)->state;
+          if (active && ok(title)) {
+            lv_label_set_text(id(np_title), title.c_str());
+            lv_label_set_text(id(np_artist), ok(artist) ? artist.c_str() : NAMES[i]);
+          } else {
+            lv_label_set_text(id(np_title), NAMES[i]);
+            lv_label_set_text(id(np_artist), ok(st) ? st.c_str() : "");
+          }
+          lv_label_set_text(id(lbl_playpause), st == "playing" ? "\U000F03E4" : "\U000F040A");
+          float v = pick_vol(i)->state;
+          std::string pct = isnan(v) ? "--" : to_string((int) lroundf(v * 100)) + "%";
+          lv_label_set_text(id(vol_pct), pct.c_str());
+          lv_label_set_text(id(vol_title), (std::string("Volume: ") + NAMES[i]).c_str());
+          if (!id(dragging_volume) && !isnan(v)) {
+            lv_slider_set_value(id(vol), (int) lroundf(v * 100), LV_ANIM_OFF);
+            lv_label_set_text(id(vol_panel_pct), pct.c_str());
+          }
+
+  # Volume up/down by `step` percent, from the slider's current level.
+  - id: set_volume
+    parameters:
+      step: int
+    then:
+      - script.execute: vol_panel_timeout
+      - homeassistant.action:
+          action: media_player.volume_set
+          data:
+            entity_id: !lambda 'static const char *E[] = {"${sp1_entity}", "${sp2_entity}", "${sp3_entity}", "${sp4_entity}", "${sp5_entity}"}; return std::string(E[id(sel)]);'
+            volume_level: !lambda |-
+              int v = lv_slider_get_value(id(vol)) + step;
+              v = std::max(0, std::min(100, v));
+              lv_slider_set_value(id(vol), v, LV_ANIM_OFF);
+              lv_label_set_text(id(vol_panel_pct), (to_string(v) + "%").c_str());
+              return to_string(v / 100.0f);
+
+  # Close the volume panel 6 s after the last touch on it.
+  - id: vol_panel_timeout
+    mode: restart
+    then:
+      - delay: 6s
+      - lvgl.widget.hide: vol_panel
+
+  - id: show_connection
+    then:
+      - lambda: |-
+          bool ok = ${ha_connected};   // from common/base.yaml
+          if (ok) lv_obj_add_flag(id(banner_offline), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_remove_flag(id(banner_offline), LV_OBJ_FLAG_HIDDEN);
+
+  # Transport buttons act on the chosen speaker.
+  - id: send_media
+    parameters:
+      what: string
+    then:
+      - homeassistant.action:
+          action: !lambda 'return "media_player." + what;'
+          data:
+            entity_id: !lambda 'static const char *E[] = {"${sp1_entity}", "${sp2_entity}", "${sp3_entity}", "${sp4_entity}", "${sp5_entity}"}; return std::string(E[id(sel)]);'
+
+# =============================================================================
+#  Fonts
+# =============================================================================
+font:
+  # Names can have accents and curly quotes, so a wider glyph set than the
+  # default (GF_Latin_Core: Western European letters and punctuation).
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_ui
+    size: 18
+    bpp: 4
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true   # Roboto lacks a few combining accents
+  # Speaker buttons are narrow: smaller, so "Living Room" fits on one line.
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_speaker
+    size: 15
+    bpp: 4
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_title
+    size: 20
+    bpp: 4
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true   # Roboto lacks a few combining accents
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: font_icons
+    size: 34
+    bpp: 4
+    glyphs:
+      - "\U000F04AE"   # skip-previous
+      - "\U000F040A"   # play
+      - "\U000F03E4"   # pause
+      - "\U000F04AD"   # skip-next
+      - "\U000F04DB"   # stop
+      - "\U000F057E"   # volume-high
+      - "\U000F075E"   # volume-minus
+      - "\U000F075D"   # volume-plus
+
+# =============================================================================
+#  Layout (LVGL)
+# =============================================================================
+lvgl:
+  displays: tft
+  rotation: 90             # landscape, USB socket on the right
+  buffer_size: 25%
+  default_font: font_ui
+  on_idle:
+    timeout: !lambda "return (uint32_t) (id(screen_timeout).state * 1000);"
+    then:
+      - light.turn_off: backlight
+      - lvgl.pause:
+  style_definitions:
+    - id: chip               # speaker and tab buttons
+      radius: 8
+      border_width: 0
+      shadow_width: 0
+      pad_all: 0
+      bg_color: 0x1E1E1E
+      text_color: 0xC8C8C8
+    - id: plain
+      bg_opa: TRANSP
+      border_width: 0
+      radius: 0
+      pad_all: 0
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      scrollable: false
+      pad_all: 0
+      widgets:
+        # ---------- where to play ----------
+        - button:
+            id: spk1
+            styles: chip
+            x: 4
+            y: 4
+            width: 91
+            height: 44
+            checked:
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            on_click:
+              - lambda: 'id(sel) = 0;'
+              - script.execute: show_selection
+              - script.execute: show_now_playing
+            widgets:
+              - label:
+                  align: CENTER
+                  width: 85
+                  long_mode: WRAP          # two lines: "Living Room / Sync"
+                  text_font: font_speaker
+                  text_align: CENTER
+                  text: "${sp1_name}"
+        - button:
+            id: spk2
+            styles: chip
+            x: 99
+            y: 4
+            width: 91
+            height: 44
+            checked:
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            on_click:
+              - lambda: 'id(sel) = 1;'
+              - script.execute: show_selection
+              - script.execute: show_now_playing
+            widgets:
+              - label:
+                  align: CENTER
+                  width: 85
+                  long_mode: WRAP          # two lines: "Living Room / Sync"
+                  text_font: font_speaker
+                  text_align: CENTER
+                  text: "${sp2_name}"
+        - button:
+            id: spk3
+            styles: chip
+            x: 194
+            y: 4
+            width: 91
+            height: 44
+            checked:
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            on_click:
+              - lambda: 'id(sel) = 2;'
+              - script.execute: show_selection
+              - script.execute: show_now_playing
+            widgets:
+              - label:
+                  align: CENTER
+                  width: 85
+                  long_mode: WRAP          # two lines: "Living Room / Sync"
+                  text_font: font_speaker
+                  text_align: CENTER
+                  text: "${sp3_name}"
+        - button:
+            id: spk4
+            styles: chip
+            x: 289
+            y: 4
+            width: 91
+            height: 44
+            checked:
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            on_click:
+              - lambda: 'id(sel) = 3;'
+              - script.execute: show_selection
+              - script.execute: show_now_playing
+            widgets:
+              - label:
+                  align: CENTER
+                  width: 85
+                  long_mode: WRAP          # two lines: "Living Room / Sync"
+                  text_font: font_speaker
+                  text_align: CENTER
+                  text: "${sp4_name}"
+        - button:
+            id: spk5
+            styles: chip
+            x: 384
+            y: 4
+            width: 91
+            height: 44
+            checked:
+              bg_color: 0xF59E0B
+              text_color: 0x1A1A1A
+            on_click:
+              - lambda: 'id(sel) = 4;'
+              - script.execute: show_selection
+              - script.execute: show_now_playing
+            widgets:
+              - label:
+                  align: CENTER
+                  width: 85
+                  long_mode: WRAP          # two lines: "Living Room / Sync"
+                  text_font: font_speaker
+                  text_align: CENTER
+                  text: "${sp5_name}"
+        # ---------- which favourites ----------
+        - button:
+            id: tab_radio
+            styles: chip
+            x: 4
+            y: 52
+            width: 154
+            height: 34
+            checked:
+              bg_color: 0x3A3A3A
+              text_color: 0xFFFFFF
+            on_click:
+              - lambda: 'id(tab) = 0;'
+              - script.execute: show_selection
+              - script.execute: fetch
+            widgets:
+              - label: {align: CENTER, text: "Radio"}
+        - button:
+            id: tab_playlist
+            styles: chip
+            x: 162
+            y: 52
+            width: 154
+            height: 34
+            checked:
+              bg_color: 0x3A3A3A
+              text_color: 0xFFFFFF
+            on_click:
+              - lambda: 'id(tab) = 1;'
+              - script.execute: show_selection
+              - script.execute: fetch
+            widgets:
+              - label: {align: CENTER, text: "Playlists"}
+        - button:
+            id: tab_album
+            styles: chip
+            x: 320
+            y: 52
+            width: 154
+            height: 34
+            checked:
+              bg_color: 0x3A3A3A
+              text_color: 0xFFFFFF
+            on_click:
+              - lambda: 'id(tab) = 2;'
+              - script.execute: show_selection
+              - script.execute: fetch
+            widgets:
+              - label: {align: CENTER, text: "Albums"}
+        # ---------- the favourites (filled by show_items) ----------
+        - obj:
+            id: fav_list
+            x: 4
+            y: 90
+            width: 472
+            height: 160
+            bg_opa: TRANSP
+            border_width: 0
+            radius: 0
+            pad_all: 2
+            scrollbar_mode: AUTO   # buttons are placed in two columns by show_items
+        # ---------- now playing ----------
+        - obj:
+            x: 0
+            y: 254
+            width: 480
+            height: 66
+            bg_color: 0x141414
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - label:
+                  id: np_title
+                  x: 8
+                  y: 8
+                  width: 164
+                  height: 25         # one line; fixed height makes DOT truncate
+                  long_mode: DOT
+                  text: ""
+                  text_font: font_title
+                  text_color: 0xFFFFFF
+              - label:
+                  id: np_artist
+                  x: 8
+                  y: 36
+                  width: 164
+                  height: 22
+                  long_mode: DOT
+                  text: ""
+                  text_color: 0x8A8A8A
+              # previous, play/pause, stop, next
+              - button:
+                  styles: chip
+                  x: 176
+                  y: 8
+                  width: 46
+                  height: 50
+                  on_click:
+                    - script.execute: {id: send_media, what: media_previous_track}
+                  widgets:
+                    - label: {align: CENTER, text_font: font_icons, text: "\U000F04AE"}
+              - button:
+                  styles: chip
+                  x: 226
+                  y: 8
+                  width: 54
+                  height: 50
+                  on_click:
+                    - script.execute: {id: send_media, what: media_play_pause}
+                  widgets:
+                    - label: {id: lbl_playpause, align: CENTER, text_font: font_icons, text: "\U000F040A"}
+              - button:
+                  styles: chip
+                  x: 284
+                  y: 8
+                  width: 46
+                  height: 50
+                  on_click:
+                    - script.execute: {id: send_media, what: media_stop}
+                  widgets:
+                    - label: {align: CENTER, text_font: font_icons, text: "\U000F04DB"}
+              - button:
+                  styles: chip
+                  x: 334
+                  y: 8
+                  width: 46
+                  height: 50
+                  on_click:
+                    - script.execute: {id: send_media, what: media_next_track}
+                  widgets:
+                    - label: {align: CENTER, text_font: font_icons, text: "\U000F04AD"}
+              # volume: shows the level, opens the big volume panel
+              - button:
+                  styles: chip
+                  x: 386
+                  y: 8
+                  width: 88
+                  height: 50
+                  on_click:
+                    - lvgl.widget.show: vol_panel
+                    - script.execute: vol_panel_timeout
+                  widgets:
+                    - label: {align: LEFT_MID, x: 4, text_font: font_icons, text: "\U000F057E"}
+                    - label: {id: vol_pct, align: RIGHT_MID, x: -6, text: "--"}
+        # ---------- volume panel (opened from the volume button) ----------
+        - obj:
+            id: vol_panel
+            x: 16
+            y: 70
+            width: 448
+            height: 170
+            hidden: true
+            bg_color: 0x202020
+            border_width: 2
+            border_color: 0x3A3A3A
+            radius: 12
+            pad_all: 0
+            scrollable: false
+            on_press:
+              - script.execute: vol_panel_timeout
+            widgets:
+              - label:
+                  id: vol_title
+                  x: 16
+                  y: 12
+                  width: 300
+                  height: 25
+                  long_mode: DOT
+                  text: "Volume"
+                  text_font: font_title
+                  text_color: 0xFFFFFF
+              - label:
+                  id: vol_panel_pct
+                  align: TOP_RIGHT
+                  x: -16
+                  y: 12
+                  text: "--"
+                  text_font: font_title
+                  text_color: 0xF59E0B
+              - button:
+                  styles: chip
+                  x: 12
+                  y: 60
+                  width: 70
+                  height: 70
+                  on_click:
+                    - script.execute: {id: set_volume, step: -5}
+                  widgets:
+                    - label: {align: CENTER, text_font: font_icons, text: "\U000F075E"}
+              - slider:
+                  id: vol
+                  x: 102
+                  y: 80
+                  width: 244
+                  height: 30
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x5A5A5A
+                  indicator:
+                    bg_color: 0xF59E0B
+                  knob:
+                    bg_color: 0xFFFFFF
+                    pad_all: 6       # a bigger knob to grab
+                  on_press:
+                    - lambda: 'id(dragging_volume) = true;'
+                    - script.execute: vol_panel_timeout
+                  on_value:
+                    - lvgl.label.update:
+                        id: vol_panel_pct
+                        text: !lambda 'return to_string((int) x) + "%";'
+                  on_release:
+                    - lambda: 'id(dragging_volume) = false;'
+                    - script.execute: vol_panel_timeout
+                    - homeassistant.action:
+                        action: media_player.volume_set
+                        data:
+                          entity_id: !lambda 'static const char *E[] = {"${sp1_entity}", "${sp2_entity}", "${sp3_entity}", "${sp4_entity}", "${sp5_entity}"}; return std::string(E[id(sel)]);'
+                          volume_level: !lambda 'return to_string(x / 100.0f);'
+              - button:
+                  styles: chip
+                  x: 366
+                  y: 60
+                  width: 70
+                  height: 70
+                  on_click:
+                    - script.execute: {id: set_volume, step: 5}
+                  widgets:
+                    - label: {align: CENTER, text_font: font_icons, text: "\U000F075D"}
+              - button:
+                  styles: chip
+                  align: BOTTOM_MID
+                  y: -8
+                  width: 120
+                  height: 26
+                  on_click:
+                    - lvgl.widget.hide: vol_panel
+                  widgets:
+                    - label: {align: CENTER, text: "Done"}
+        - label:
+            id: banner_offline
+            align: CENTER
+            text: "Not connected to Home Assistant"
+            text_font: font_title
+            text_color: 0xFFFFFF
+            bg_color: 0xB91C1C
+            bg_opa: COVER
+            radius: 6
+            pad_all: 8

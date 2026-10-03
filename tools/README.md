@@ -117,6 +117,7 @@ plus fake data. So a demo always shows the current project, not a copy of it.
 |---|---|
 | [`cyd-bus-display-demo.yaml`](demo/cyd-bus-display-demo.yaml) | Cycles 10 scenarios every 6 s: on time, late, very late, timetable-only, last bus, due, early, overnight (and night brightness), stale, HA lost |
 | [`esp32-4in-bus-display-demo.yaml`](demo/esp32-4in-bus-display-demo.yaml) | The two-stop layout on the 4" board: both cards cycle the same scenarios, 5 apart, so they always differ |
+| [`esp32-4in-music-panel-demo.yaml`](demo/esp32-4in-music-panel-demo.yaml) | The music panel with made-up favourites and speaker states; taps log the media id they would play |
 | [`cyd-light-panel-demo.yaml`](demo/cyd-light-panel-demo.yaml) | 8 tiles that toggle locally, and every tap logged with its coordinates |
 | [`esp32-4in-light-panel-demo.yaml`](demo/esp32-4in-light-panel-demo.yaml) | The same on the 4" board: 12 tiles (4 × 3) |
 

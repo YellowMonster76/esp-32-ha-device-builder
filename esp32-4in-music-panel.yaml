@@ -1,0 +1,43 @@
+# =============================================================================
+#  Device: 4in Music Panel (Music Assistant)
+#  Board:   boards/esp32-4in-st7796s.yaml   (MAC 20:50:0d:1d:fe:8f (last 3 bytes randomised))
+#  Project: projects/music-panel
+#
+#  EXAMPLE SPEAKERS: the five players below are placeholders. Use your own
+#  Music Assistant players (any media_player from the Music Assistant
+#  integration, including MA groups), and your own MA config entry id.
+# =============================================================================
+
+substitutions:
+  name: esp32-4in-music-panel
+  friendly_name: 4in Music Panel
+
+  # Developer tools -> Actions -> "Music Assistant: Get library", pick your
+  # instance, switch to YAML mode: config_entry_id.
+  ma_config_entry: "YOUR_MA_CONFIG_ENTRY_ID"
+
+  # ---- Speaker buttons, left to right (names wrap onto two lines) ---------
+  sp1_name: "Living Room Sync"
+  sp1_entity: media_player.living_room_sync
+  sp2_name: "Living Room"
+  sp2_entity: media_player.living_room
+  sp3_name: "NAD"
+  sp3_entity: media_player.nad
+  sp4_name: "Kitchen"
+  sp4_entity: media_player.kitchen
+  sp5_name: "Utility Room"
+  sp5_entity: media_player.utility_room
+
+packages:
+  base: !include common/base.yaml
+  board: !include boards/esp32-4in-st7796s.yaml
+  project: !include projects/music-panel/music-panel.yaml
+
+api:
+  encryption:
+    key: !secret music_4in_api_key
+
+wifi:
+  ap:
+    ssid: "4in Music Fallback"
+    password: !secret music_4in_fallback_password

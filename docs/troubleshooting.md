@@ -49,3 +49,18 @@ are in each board's notes (e.g. [CYD](../boards/cyd-2432s028.md)).
 - `xpt2046` requires a `calibration:` block even if touch targets don't matter.
 - In packages, `!secret` names can't come from substitutions. That's why the
   API key and fallback hotspot are set in each device file.
+- **Reading an HA action's answer:** `homeassistant.action` with
+  `capture_response: true` and `on_success` (the lambda gets `response`). HA
+  wraps it as `{"response": ...}`. Add a `response_template` to shrink big
+  answers in HA before they're sent (the music panel does this).
+- An action sent before HA has subscribed (right at connection) is **dropped**
+  with a warning, and its `on_success` never runs. Delay a couple of seconds
+  after `on_client_connected`.
+- ESPHome **strips `//` comments from lambdas** and doesn't recognise C++ raw
+  strings, so a `//` inside `R"(...)"` gets cut. Keep `//` out of literal
+  strings in lambdas.
+- LVGL **flex layout** can't be declared on a container with no widgets, and
+  isn't compiled in unless some YAML uses it: position runtime-made widgets
+  yourself.
+- `!extend` on a script **adds** its steps after the original ones; it doesn't
+  replace them.

@@ -21,7 +21,7 @@ than guessing. After generating, prove the result with:
   python tools/compare_configs.py cyd-bus-display.yaml single-file/cyd-bus-display.yaml
 
   python tools/flatten.py                  # every device file at the top level
-  python tools/flatten.py cyd-light-panel.yaml
+  python tools/flatten.py cyd-light-panel-8tile.yaml
   python tools/flatten.py --check          # exit 1 if single-file/ is out of date
 """
 import re

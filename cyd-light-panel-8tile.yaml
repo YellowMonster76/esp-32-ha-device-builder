@@ -5,7 +5,7 @@
 # =============================================================================
 
 substitutions:
-  name: cyd-light-panel
+  name: cyd-light-panel-8tile
   friendly_name: CYD Light Panel
 
   # Touch calibration measured on this unit (2026-09-25) by tapping the corners.

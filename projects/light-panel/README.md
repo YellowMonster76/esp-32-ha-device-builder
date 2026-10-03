@@ -6,8 +6,8 @@ same:
 
 | File | Screen | Tiles | Used by |
 |---|---|---|---|
-| [`light-panel.yaml`](light-panel.yaml) | 320×240 landscape (CYD) | 8 (4 × 2) | [`cyd-light-panel`](../../cyd-light-panel.yaml) |
-| [`light-panel-480x320.yaml`](light-panel-480x320.yaml) | 480×320 landscape (4" ST7796S) | 12 (4 × 3) | [demo](../../tools/demo/esp32-4in-light-panel-demo.yaml) only, so far |
+| [`light-panel.yaml`](light-panel.yaml) | 320×240 landscape (CYD) | 8 (4 × 2) | [`cyd-light-panel-8tile`](../../cyd-light-panel-8tile.yaml) |
+| [`light-panel-480x320.yaml`](light-panel-480x320.yaml) | 480×320 landscape (4" ST7796S) | 12 (4 × 3) | [`esp32-4in-light-panel-12tile`](../../esp32-4in-light-panel-12tile.yaml) (example entities), [demo](../../tools/demo/esp32-4in-light-panel-demo.yaml) |
 
 **Needs from the board:** an LVGL display `tft` of that size, a
 **calibrated** touchscreen `touch`, light `backlight`.
@@ -31,6 +31,9 @@ same:
 - A tap sends `homeassistant.toggle`, so it works for lights, switches, fans
   and anything else that toggles. The tile changes only when HA reports the
   new state, so it can't show a state that didn't happen.
+- The entity's state must be `on` or `off`. Anything else shows as
+  unavailable, so **media players don't suit** (they report `playing`,
+  `idle`...): use their power switch or smart plug instead.
 - A red **"Not connected to Home Assistant"** banner appears when the API
   link drops.
 - The screen goes **off after "Screen timeout"** (number in HA, 10–600 s,
@@ -79,9 +82,10 @@ new entry there.
 
 ## Tested
 
-- **320×240 (CYD):** in daily use on `cyd-light-panel` with HA.
+- **320×240 (CYD):** on the real board with HA: every tile toggles its entity and follows its state.
 - **480×320 (4" ST7796S):** demo build on the real board, 2026-10-03. All 12
   tiles toggled under the finger, names up to 13 characters fit ("Bedroom
   heater" is cut off with "…"), and the screen timeout and wake-only first tap
-  work. **Not yet run with HA**: there's no device file for it until it gets
-  real entities.
+  work. **Not yet run with HA**: the device file
+  [`esp32-4in-light-panel-12tile`](../../esp32-4in-light-panel-12tile.yaml)
+  has made-up example entities. Swap in your own before installing.

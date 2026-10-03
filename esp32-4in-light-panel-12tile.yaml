@@ -1,0 +1,80 @@
+# =============================================================================
+#  Device: 4in Light Panel (12 tiles)
+#  Board:   boards/esp32-4in-st7796s.yaml   (MAC 20:50:0d:1d:fe:8f (last 3 bytes randomised))
+#  Project: projects/light-panel (light-panel-480x320.yaml)
+#
+#  EXAMPLE ENTITIES: the tiles below are made up, to show a full 12-tile
+#  panel. Replace them with your own before installing. The layout and touch
+#  were tested on the real board with the demo build; this file hasn't been
+#  run against HA.
+# =============================================================================
+
+substitutions:
+  name: esp32-4in-light-panel
+  friendly_name: 4in Light Panel
+
+  # Touch calibration measured on this unit (2026-10-03) by tapping the corners.
+  touch_x_min: "109"
+  touch_x_max: "4034"
+  touch_y_min: "140"
+  touch_y_max: "3984"
+
+  # ---- The twelve tiles: b1-b4 top row left to right, b5-b8 middle row, ---
+  # ---- b9-b12 bottom row. Names up to about 13 characters. ----------------
+  # Icons: pick a code from the list under `font:` in
+  # projects/light-panel/light-panel-480x320.yaml.
+  # Top row: living room lights.
+  b1_entity: light.living_room_ceiling
+  b1_name: "Ceiling"
+  b1_icon: "\U000F0769"      # mdi:ceiling-light
+  b2_entity: light.living_room_floor_lamp
+  b2_name: "Floor lamp"
+  b2_icon: "\U000F08DD"      # mdi:floor-lamp
+  b3_entity: light.living_room_lamps
+  b3_name: "Lamps"
+  b3_icon: "\U000F1576"      # mdi:lamps
+  b4_entity: light.tv_backlight
+  b4_name: "TV backlight"
+  b4_icon: "\U000F1051"      # mdi:led-strip-variant
+  # Middle row: kitchen, dining, outside.
+  b5_entity: light.kitchen_spotlights
+  b5_name: "Kitchen"
+  b5_icon: "\U000F179B"      # mdi:light-recessed
+  b6_entity: light.kitchen_worktop
+  b6_name: "Worktop"
+  b6_icon: "\U000F04C9"      # mdi:spotlight-beam
+  b7_entity: light.dining_pendant
+  b7_name: "Dining"
+  b7_icon: "\U000F1793"      # mdi:chandelier
+  b8_entity: light.garden_lights
+  b8_name: "Garden"
+  b8_icon: "\U000F1054"      # mdi:outdoor-lamp
+  # Bottom row: plugs and other things that toggle. Any entity whose state is
+  # "on"/"off" works (light, switch, fan, input_boolean...). Not media
+  # players: "playing"/"idle" would show as unavailable.
+  b9_entity: switch.coffee_machine
+  b9_name: "Coffee"
+  b9_icon: "\U000F109F"      # mdi:coffee-maker
+  b10_entity: switch.speaker_plug
+  b10_name: "Speaker"
+  b10_icon: "\U000F071F"     # mdi:speaker-wireless
+  b11_entity: fan.living_room_fan
+  b11_name: "Fan"
+  b11_icon: "\U000F1797"     # mdi:ceiling-fan
+  b12_entity: switch.fairy_lights
+  b12_name: "Fairy lights"
+  b12_icon: "\U000F12BA"     # mdi:string-lights
+
+packages:
+  base: !include common/base.yaml
+  board: !include boards/esp32-4in-st7796s.yaml
+  project: !include projects/light-panel/light-panel-480x320.yaml
+
+api:
+  encryption:
+    key: !secret panel_4in_api_key
+
+wifi:
+  ap:
+    ssid: "4in Panel Fallback"
+    password: !secret panel_4in_fallback_password

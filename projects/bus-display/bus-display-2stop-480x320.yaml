@@ -1,0 +1,830 @@
+# =============================================================================
+#  Project: bus display, two stops side by side (480x320)
+#  The next departure from each of two stops, pushed from Home Assistant.
+#  Same rules as the single-stop bus-display.yaml (lateness colours, timetable
+#  guesses in grey, STALE, LAST BUS, night screen), once per stop.
+#  Needs: a 480x320 landscape LVGL display (`tft`), touchscreen `touch`,
+#  light `backlight`. Include brightness.yaml (the backlight) alongside it.
+#
+#  Screen (landscape, 480x320):
+#    +-----------------------+-----------------------+
+#    | o NO HA                                 19:42 |  connection + clock
+#    | HIGH STREET           | MARKET SQUARE         |  stop names
+#    |  17         +------+  |   4         +------+  |
+#    |             |  S9  |  |             | 700  |  |  minutes to go, route
+#    |  min        +------+  |  min          STALE   |  feed warning
+#    |  19:59   [ On time ]  |  19:46  [2 min late]  |  expected time, lateness
+#    |  to Wantage           |  to Oxford            |
+#    |  Then 20:29 S9        |  Then 19:58 700       |  following / LAST BUS
+#    +-----------------------+-----------------------+
+#
+#  Each stop's entities are substitutions (s1_* left, s2_* right): set them
+#  in the device file. See README.md for what each entity provides.
+# =============================================================================
+
+substitutions:
+  # ---- The two stops (override in the device file) --------------------------
+  # sN_title  name shown on the card (about 13 characters fit)
+  # sN_next   next departure: state + line, destination, scheduled, delay,
+  #           live, following
+  # sN_feed   feed health: attributes stale, quiet
+  # sN_last   last departure of the day: state "HH:MM" + attribute line
+  # sN_first  first bus of the morning: state "HH:MM" (optional sensor)
+  s1_title: "HIGH STREET"
+  s1_next: sensor.bus_next_high_street
+  s1_feed: sensor.bus_oxontime_high_street
+  s1_last: sensor.bus_last_high_street
+  s1_first: sensor.bus_first_high_street
+  s2_title: "MARKET SQUARE"
+  s2_next: sensor.bus_next_market_square
+  s2_feed: sensor.bus_oxontime_market_square
+  s2_last: sensor.bus_last_market_square
+  s2_first: sensor.bus_first_market_square
+
+  # ---- Lateness thresholds (minutes, from the `delay` attribute) ------------
+  # Same meaning as in bus-display.yaml.
+  early_warn: "-2"
+  late_amber: "2"
+  late_red: "6"
+  overdue_after: "2"
+  gone_after: "30"
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: refresh
+
+api:
+  on_client_connected:
+    - script.execute: refresh
+  on_client_disconnected:
+    - script.execute: refresh
+
+
+# =============================================================================
+#  Data from Home Assistant, per stop (s1_ left card, s2_ right card).
+#  Everything arrives as text; booleans as "on"/"off".
+# =============================================================================
+text_sensor:
+  # ---- stop 1: ${s1_title} ----
+  # The entity state: a timestamp, or unknown/unavailable when there's no bus.
+  # This decides "is there a bus?" (HA doesn't clear attributes).
+  - platform: homeassistant
+    id: s1_state
+    entity_id: ${s1_next}
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_line
+    entity_id: ${s1_next}
+    attribute: line
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_dest
+    entity_id: ${s1_next}
+    attribute: destination
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_sched
+    entity_id: ${s1_next}
+    attribute: scheduled
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_delay
+    entity_id: ${s1_next}
+    attribute: delay
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_live
+    entity_id: ${s1_next}
+    attribute: live
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_fol
+    entity_id: ${s1_next}
+    attribute: following
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_stale
+    entity_id: ${s1_feed}
+    attribute: stale
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_quiet
+    entity_id: ${s1_feed}
+    attribute: quiet
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_last_t
+    entity_id: ${s1_last}
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_last_l
+    entity_id: ${s1_last}
+    attribute: line
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s1_first
+    entity_id: ${s1_first}
+    internal: true
+    on_value: {script.execute: refresh}
+  # ---- stop 2: ${s2_title} ----
+  # The entity state: a timestamp, or unknown/unavailable when there's no bus.
+  # This decides "is there a bus?" (HA doesn't clear attributes).
+  - platform: homeassistant
+    id: s2_state
+    entity_id: ${s2_next}
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_line
+    entity_id: ${s2_next}
+    attribute: line
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_dest
+    entity_id: ${s2_next}
+    attribute: destination
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_sched
+    entity_id: ${s2_next}
+    attribute: scheduled
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_delay
+    entity_id: ${s2_next}
+    attribute: delay
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_live
+    entity_id: ${s2_next}
+    attribute: live
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_fol
+    entity_id: ${s2_next}
+    attribute: following
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_stale
+    entity_id: ${s2_feed}
+    attribute: stale
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_quiet
+    entity_id: ${s2_feed}
+    attribute: quiet
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_last_t
+    entity_id: ${s2_last}
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_last_l
+    entity_id: ${s2_last}
+    attribute: line
+    internal: true
+    on_value: {script.execute: refresh}
+  - platform: homeassistant
+    id: s2_first
+    entity_id: ${s2_first}
+    internal: true
+    on_value: {script.execute: refresh}
+
+
+# Recompute the countdowns and clock every 10 s.
+interval:
+  - interval: 10s
+    then:
+      - script.execute: refresh
+
+
+# =============================================================================
+#  Logic
+# =============================================================================
+script:
+  # Redraws both cards from the current sensor values. Called on any data
+  # change and every 10 s.
+  - id: refresh
+    then:
+      - lambda: |-
+          // ---------- colours ----------
+          const uint32_t WHITE = 0xFFFFFF, GREY = 0x8A8A8A,
+                         GREEN = 0x15803D, AMBER = 0xD97706, RED = 0xDC2626,
+                         CHIP_OFF = 0x2A2A2A, BADGE = 0xFFD200, BADGE_OFF = 0x4A4A4A;
+
+          // ---------- helpers ----------
+          auto valid = [](const std::string &s) {
+            return !s.empty() && s != "unknown" && s != "unavailable" && s != "None";
+          };
+          auto is_true = [](const std::string &s) {
+            return s == "on" || s == "true" || s == "True" || s == "1";
+          };
+          // "19:59" -> minutes since midnight, or -1 if not a time
+          auto hhmm = [](const std::string &s) -> int {
+            int h, m;
+            if (sscanf(s.c_str(), "%d:%d", &h, &m) != 2) return -1;
+            if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+            return h * 60 + m;
+          };
+          auto fmt_hhmm = [](int m) {
+            m = ((m % 1440) + 1440) % 1440;
+            char b[8];
+            snprintf(b, sizeof(b), "%02d:%02d", m / 60, m % 60);
+            return std::string(b);
+          };
+          auto text = [](lv_obj_t *o, const std::string &t) { lv_label_set_text(o, t.c_str()); };
+          auto fg = [](lv_obj_t *o, uint32_t c) { lv_obj_set_style_text_color(o, lv_color_hex(c), 0); };
+          auto bg = [](lv_obj_t *o, uint32_t c) { lv_obj_set_style_bg_color(o, lv_color_hex(c), 0); };
+          auto show = [](lv_obj_t *o, bool v) {
+            if (v) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+          };
+
+          // ---------- shared inputs ----------
+          auto now = id(ha_time).now();
+          int now_m = now.is_valid() ? now.hour * 60 + now.minute : -1;
+          bool api_ok = ${ha_connected};   // from common/base.yaml
+
+          // ---------- top bar ----------
+          text(id(lbl_clock), now.is_valid() ? now.strftime("%H:%M") : "--:--");
+          text(id(lbl_conn), api_ok ? "" : "NO HA");
+          bg(id(dot_conn), api_ok ? GREEN : RED);
+
+          // ---------- one stop's card ----------
+          struct Stop {
+            text_sensor::TextSensor *state, *line, *dest, *sched, *delay, *live,
+                *fol, *stale, *quiet, *last_t, *last_l, *first;
+            lv_obj_t *status, *grp_dep, *grp_none, *none_title, *none_sub,
+                *none_first, *min, *min_s, *unit, *badge, *line_l, *time, *chip,
+                *chip_l, *dest_l, *fol_l, *tag_last;
+          };
+          auto draw = [&](const Stop &s) {
+            bool quiet = is_true(s.quiet->state);
+            bool feed_stale = is_true(s.stale->state) && !quiet;
+
+            int sched = hhmm(s.sched->state);
+            bool have = valid(s.state->state) && sched >= 0;
+            bool live = is_true(s.live->state);
+            // delay may be "", "3", "-1" or "3.0"
+            int delay = (int) lroundf(atof(s.delay->state.c_str()));
+            int dep = sched + delay;               // expected departure, minutes
+
+            // minutes until departure, handling midnight
+            int until = 0;
+            bool overdue = false;
+            if (have && now_m >= 0) {
+              until = dep - now_m;
+              if (until < -720) until += 1440;
+              else if (until > 720) until -= 1440;
+              if (until < -${gone_after}) have = false;   // long gone: treat as none
+              else if (until < -${overdue_after}) overdue = true;
+            }
+
+            // STALE is per stop (each has its own feed), under its route badge;
+            // NO HA is in the top bar.
+            bool stale = api_ok && (feed_stale || (have && overdue));
+            text(s.status, stale ? "STALE" : "");
+            fg(s.status, AMBER);
+
+            show(s.grp_dep, have);
+            show(s.grp_none, !have);
+
+            // no departure (overnight / feed empty)
+            if (!have) {
+              bool night = now_m >= 0 && (now_m >= 20 * 60 || now_m < 6 * 60);
+              text(s.none_title, night ? "No more buses" : "No buses listed");
+              text(s.none_sub, night ? "tonight" : "right now");
+              std::string first = s.first->state;
+              text(s.none_first, hhmm(first) >= 0 ? "First bus " + first : "");
+              return;
+            }
+
+            // Anything we can't trust is drawn grey: timetable guesses,
+            // lost HA connection, stale feed.
+            bool trusted = live && api_ok && !feed_stale && !overdue;
+
+            // big countdown
+            std::string big;
+            bool show_unit = true;
+            if (now_m < 0 || overdue) { big = "--"; show_unit = false; }
+            else if (until <= 0)      { big = "Due"; show_unit = false; }
+            else if (until > 99)      { big = "99+"; }
+            else                      { big = to_string(until); }
+            if (!live && big != "--") big = "~" + big;   // "about": timetable only
+            // 1-2 characters use the 112 px font; 3+ ("Due", "~25", "99+")
+            // would hit the route badge, so use the smaller one.
+            bool narrow = big.size() <= 2;
+            text(s.min, narrow ? big : "");
+            text(s.min_s, narrow ? "" : big);
+            fg(s.min, trusted ? WHITE : GREY);
+            fg(s.min_s, trusted ? WHITE : GREY);
+            show(s.unit, show_unit);
+            fg(s.unit, trusted ? WHITE : GREY);
+
+            // route badge
+            text(s.line_l, s.line->state);
+            bg(s.badge, live ? BADGE : BADGE_OFF);
+            fg(s.line_l, live ? 0x000000 : WHITE);
+
+            // expected time
+            text(s.time, fmt_hhmm(dep));
+            fg(s.time, trusted ? WHITE : GREY);
+
+            // lateness chip
+            char chip[24];
+            uint32_t chip_bg;
+            if (!live) {
+              snprintf(chip, sizeof(chip), "Timetable");  chip_bg = CHIP_OFF;
+            } else if (delay <= ${early_warn}) {
+              snprintf(chip, sizeof(chip), "%d min early", -delay);  chip_bg = AMBER;
+            } else if (delay < ${late_amber}) {
+              snprintf(chip, sizeof(chip), "On time");  chip_bg = GREEN;
+            } else if (delay < ${late_red}) {
+              snprintf(chip, sizeof(chip), "%d min late", delay);  chip_bg = AMBER;
+            } else {
+              snprintf(chip, sizeof(chip), "%d min late", delay);  chip_bg = RED;
+            }
+            if (live && !trusted) chip_bg = CHIP_OFF;   // don't colour-code stale data
+            text(s.chip_l, chip);
+            bg(s.chip, chip_bg);
+            fg(s.chip_l, live ? WHITE : GREY);
+
+            // destination
+            text(s.dest_l, valid(s.dest->state) ? "to " + s.dest->state : "");
+
+            // footer: last bus, else the one after
+            bool is_last = hhmm(s.last_t->state) == sched &&
+                           (!valid(s.last_l->state) || s.last_l->state == s.line->state);
+            show(s.tag_last, is_last);
+            std::string fol = s.fol->state;
+            text(s.fol_l, (!is_last && valid(fol)) ? "Then " + fol : "");
+          };
+
+          draw(Stop
+            {id(s1_state), id(s1_line), id(s1_dest), id(s1_sched), id(s1_delay), id(s1_live),
+             id(s1_fol), id(s1_stale), id(s1_quiet), id(s1_last_t), id(s1_last_l), id(s1_first),
+             id(s1_lbl_status), id(s1_grp_dep), id(s1_grp_none), id(s1_none_title), id(s1_none_sub),
+             id(s1_none_first), id(s1_lbl_min), id(s1_lbl_min_s), id(s1_lbl_unit), id(s1_badge),
+             id(s1_lbl_line), id(s1_lbl_time), id(s1_chip), id(s1_lbl_chip), id(s1_lbl_dest),
+             id(s1_lbl_fol), id(s1_tag_last)});
+          draw(Stop
+            {id(s2_state), id(s2_line), id(s2_dest), id(s2_sched), id(s2_delay), id(s2_live),
+             id(s2_fol), id(s2_stale), id(s2_quiet), id(s2_last_t), id(s2_last_l), id(s2_first),
+             id(s2_lbl_status), id(s2_grp_dep), id(s2_grp_none), id(s2_none_title), id(s2_none_sub),
+             id(s2_none_first), id(s2_lbl_min), id(s2_lbl_min_s), id(s2_lbl_unit), id(s2_badge),
+             id(s2_lbl_line), id(s2_lbl_time), id(s2_chip), id(s2_lbl_chip), id(s2_lbl_dest),
+             id(s2_lbl_fol), id(s2_tag_last)});
+
+
+# =============================================================================
+#  Fonts (Roboto from Google Fonts, fetched at compile time)
+# =============================================================================
+font:
+  # The countdown. Only the glyphs it can show, to save flash.
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_huge
+    size: 112
+    bpp: 4
+    glyphs: "0123456789~+-Due"
+  # Same, smaller, for 3-character countdowns so they clear the route badge.
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_huge_s
+    size: 76
+    bpp: 4
+    glyphs: "0123456789~+-Due"
+  - file: {type: gfonts, family: Roboto, weight: 700}
+    id: font_big
+    size: 40
+    bpp: 4
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_med
+    size: 24
+    bpp: 4
+  - file: {type: gfonts, family: Roboto, weight: 500}
+    id: font_small
+    size: 18
+    bpp: 4
+
+
+# =============================================================================
+#  Layout (LVGL): a top bar, then one 238 px card per stop.
+# =============================================================================
+lvgl:
+  displays: tft
+  rotation: 90              # landscape, USB socket on the right
+  buffer_size: 25%
+  default_font: font_small
+  style_definitions:
+    - id: plain             # transparent container, no border/padding/scroll
+      bg_opa: TRANSP
+      border_width: 0
+      pad_all: 0
+      radius: 0
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      scrollable: false
+      pad_all: 0
+      widgets:
+        # ---------- top bar: connection + clock ----------
+        - obj:
+            x: 0
+            y: 0
+            width: 480
+            height: 28
+            bg_color: 0x1C1C1C
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - obj:
+                  id: dot_conn
+                  align: LEFT_MID
+                  x: 10
+                  width: 12
+                  height: 12
+                  radius: 6
+                  border_width: 0
+                  bg_color: 0x5A5A5A
+              - label:
+                  id: lbl_conn
+                  align: LEFT_MID
+                  x: 30
+                  text: ""
+                  text_font: font_small
+                  text_color: 0xDC2626
+              - label:
+                  id: lbl_clock
+                  align: RIGHT_MID
+                  x: -10
+                  text: "--:--"
+                  text_font: font_med
+                  text_color: 0xB0B0B0
+        # ---------- divider between the cards ----------
+        - obj:
+            x: 239
+            y: 38
+            width: 2
+            height: 272
+            bg_color: 0x333333
+            border_width: 0
+            radius: 0
+        # ---------- stop 1 ----------
+        - obj:
+            styles: plain
+            x: 0
+            y: 32
+            width: 238
+            height: 288
+            scrollable: false
+            widgets:
+              - label:
+                  x: 8
+                  y: 4
+                  width: 222
+                  height: 29         # one line; fixed height makes DOT truncate
+                  long_mode: DOT
+                  text: "${s1_title}"
+                  text_font: font_med
+                  text_color: 0xFFFFFF
+              # departure
+              - obj:
+                  id: s1_grp_dep
+                  styles: plain
+                  x: 0
+                  y: 36
+                  width: 238
+                  height: 252
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: s1_lbl_min
+                        x: 4
+                        y: -10
+                        text: "--"
+                        text_font: font_huge
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: s1_lbl_min_s  # bottom-aligned with s1_lbl_min
+                        x: 4
+                        y: 23
+                        text: ""
+                        text_font: font_huge_s
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: s1_lbl_unit
+                        x: 10
+                        y: 104
+                        text: "min"
+                        text_font: font_med
+                        text_color: 0xFFFFFF
+                    - obj:
+                        id: s1_badge
+                        x: 148
+                        y: 6
+                        width: 82
+                        height: 50
+                        radius: 8
+                        border_width: 0
+                        pad_all: 0
+                        bg_color: 0xFFD200
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: s1_lbl_line
+                              align: CENTER
+                              text: ""
+                              text_font: font_big
+                              text_color: 0x000000
+                    - label:
+                        id: s1_lbl_status  # "STALE", under the route badge
+                        x: 148
+                        y: 66
+                        width: 82
+                        text_align: CENTER
+                        text: ""
+                        text_font: font_small
+                    - label:
+                        id: s1_lbl_time
+                        x: 8
+                        y: 136
+                        text: ""
+                        text_font: font_big
+                    - obj:
+                        id: s1_chip
+                        x: 120
+                        y: 142
+                        width: 110
+                        height: 30
+                        radius: 6
+                        border_width: 0
+                        pad_all: 0
+                        bg_color: 0x2A2A2A
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: s1_lbl_chip
+                              align: CENTER
+                              text: ""
+                              text_font: font_small
+                    - label:
+                        id: s1_lbl_dest
+                        x: 8
+                        y: 186
+                        width: 222
+                        height: 29
+                        long_mode: DOT
+                        text: ""
+                        text_font: font_med
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: s1_lbl_fol
+                        x: 8
+                        y: 220
+                        width: 222
+                        height: 22
+                        long_mode: DOT
+                        text: ""
+                        text_font: font_small
+                        text_color: 0x8A8A8A
+                    - obj:
+                        id: s1_tag_last
+                        x: 122
+                        y: 218
+                        width: 108
+                        height: 26
+                        radius: 6
+                        border_width: 0
+                        pad_all: 0
+                        bg_color: 0x7C3AED
+                        hidden: true
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "LAST BUS"
+                              text_font: font_small
+                              text_color: 0xFFFFFF
+              # no departure (overnight, or the feed is empty)
+              - obj:
+                  id: s1_grp_none
+                  styles: plain
+                  x: 0
+                  y: 36
+                  width: 238
+                  height: 252
+                  hidden: true
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: s1_none_title
+                        align: TOP_MID
+                        y: 60
+                        text: ""
+                        text_font: font_med
+                        text_color: 0xB0B0B0
+                    - label:
+                        id: s1_none_sub
+                        align: TOP_MID
+                        y: 92
+                        text: ""
+                        text_font: font_med
+                        text_color: 0xB0B0B0
+                    - label:
+                        id: s1_none_first
+                        align: TOP_MID
+                        y: 150
+                        text: ""
+                        text_font: font_small
+                        text_color: 0x8A8A8A
+        # ---------- stop 2 ----------
+        - obj:
+            styles: plain
+            x: 242
+            y: 32
+            width: 238
+            height: 288
+            scrollable: false
+            widgets:
+              - label:
+                  x: 8
+                  y: 4
+                  width: 222
+                  height: 29         # one line; fixed height makes DOT truncate
+                  long_mode: DOT
+                  text: "${s2_title}"
+                  text_font: font_med
+                  text_color: 0xFFFFFF
+              # departure
+              - obj:
+                  id: s2_grp_dep
+                  styles: plain
+                  x: 0
+                  y: 36
+                  width: 238
+                  height: 252
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: s2_lbl_min
+                        x: 4
+                        y: -10
+                        text: "--"
+                        text_font: font_huge
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: s2_lbl_min_s  # bottom-aligned with s2_lbl_min
+                        x: 4
+                        y: 23
+                        text: ""
+                        text_font: font_huge_s
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: s2_lbl_unit
+                        x: 10
+                        y: 104
+                        text: "min"
+                        text_font: font_med
+                        text_color: 0xFFFFFF
+                    - obj:
+                        id: s2_badge
+                        x: 148
+                        y: 6
+                        width: 82
+                        height: 50
+                        radius: 8
+                        border_width: 0
+                        pad_all: 0
+                        bg_color: 0xFFD200
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: s2_lbl_line
+                              align: CENTER
+                              text: ""
+                              text_font: font_big
+                              text_color: 0x000000
+                    - label:
+                        id: s2_lbl_status  # "STALE", under the route badge
+                        x: 148
+                        y: 66
+                        width: 82
+                        text_align: CENTER
+                        text: ""
+                        text_font: font_small
+                    - label:
+                        id: s2_lbl_time
+                        x: 8
+                        y: 136
+                        text: ""
+                        text_font: font_big
+                    - obj:
+                        id: s2_chip
+                        x: 120
+                        y: 142
+                        width: 110
+                        height: 30
+                        radius: 6
+                        border_width: 0
+                        pad_all: 0
+                        bg_color: 0x2A2A2A
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: s2_lbl_chip
+                              align: CENTER
+                              text: ""
+                              text_font: font_small
+                    - label:
+                        id: s2_lbl_dest
+                        x: 8
+                        y: 186
+                        width: 222
+                        height: 29
+                        long_mode: DOT
+                        text: ""
+                        text_font: font_med
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: s2_lbl_fol
+                        x: 8
+                        y: 220
+                        width: 222
+                        height: 22
+                        long_mode: DOT
+                        text: ""
+                        text_font: font_small
+                        text_color: 0x8A8A8A
+                    - obj:
+                        id: s2_tag_last
+                        x: 122
+                        y: 218
+                        width: 108
+                        height: 26
+                        radius: 6
+                        border_width: 0
+                        pad_all: 0
+                        bg_color: 0x7C3AED
+                        hidden: true
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "LAST BUS"
+                              text_font: font_small
+                              text_color: 0xFFFFFF
+              # no departure (overnight, or the feed is empty)
+              - obj:
+                  id: s2_grp_none
+                  styles: plain
+                  x: 0
+                  y: 36
+                  width: 238
+                  height: 252
+                  hidden: true
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: s2_none_title
+                        align: TOP_MID
+                        y: 60
+                        text: ""
+                        text_font: font_med
+                        text_color: 0xB0B0B0
+                    - label:
+                        id: s2_none_sub
+                        align: TOP_MID
+                        y: 92
+                        text: ""
+                        text_font: font_med
+                        text_color: 0xB0B0B0
+                    - label:
+                        id: s2_none_first
+                        align: TOP_MID
+                        y: 150
+                        text: ""
+                        text_font: font_small
+                        text_color: 0x8A8A8A

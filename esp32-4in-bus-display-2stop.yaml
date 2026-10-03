@@ -1,0 +1,45 @@
+# =============================================================================
+#  Device: 4in Bus Display (two stops)
+#  Board:   boards/esp32-4in-st7796s.yaml   (MAC 20:50:0d:1d:fe:8f (last 3 bytes randomised))
+#  Project: projects/bus-display (bus-display-2stop-480x320.yaml + brightness.yaml)
+#
+#  EXAMPLE STOPS: "High Street" and "Market Square" are placeholders, and so
+#  are their entity IDs. Point them at your own stops' sensors (see
+#  projects/bus-display/README.md for what each must provide). The layout was
+#  tested on the real board with the demo build; this file hasn't been run
+#  against HA.
+# =============================================================================
+
+substitutions:
+  name: esp32-4in-bus-display-2stop
+  friendly_name: 4in Bus Display
+  # Touch is "tap anywhere" (full brightness for a while), so the board
+  # file's calibration is fine.
+
+  # ---- Left card --------------------------------------------------------------
+  s1_title: "HIGH STREET"
+  s1_next: sensor.bus_next_high_street
+  s1_feed: sensor.bus_oxontime_high_street
+  s1_last: sensor.bus_last_high_street
+  s1_first: sensor.bus_first_high_street
+  # ---- Right card -------------------------------------------------------------
+  s2_title: "MARKET SQUARE"
+  s2_next: sensor.bus_next_market_square
+  s2_feed: sensor.bus_oxontime_market_square
+  s2_last: sensor.bus_last_market_square
+  s2_first: sensor.bus_first_market_square
+
+packages:
+  base: !include common/base.yaml
+  board: !include boards/esp32-4in-st7796s.yaml
+  project: !include projects/bus-display/bus-display-2stop-480x320.yaml
+  brightness: !include projects/bus-display/brightness.yaml
+
+api:
+  encryption:
+    key: !secret bus_4in_api_key
+
+wifi:
+  ap:
+    ssid: "4in Bus Fallback"
+    password: !secret bus_4in_fallback_password

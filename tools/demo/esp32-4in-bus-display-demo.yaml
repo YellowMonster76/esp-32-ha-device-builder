@@ -1,0 +1,99 @@
+# =============================================================================
+#  DEMO build of the two-stop bus display on the 4" ST7796S board: real board
+#  + project with fake data, no Wi-Fi or HA needed. For checking layout,
+#  colours and every screen state on a bare board before pairing it.
+#
+#  Every 6 s each card moves to the next of the same 10 scenarios as the CYD
+#  demo, the right card 5 ahead of the left, so they always differ:
+#    0 on time   1 4 min late (amber)   2 9 min late (red)   3 timetable-only
+#    4 last bus  5 due                  6 3 min early        7 overnight
+#    8 stale feed                       9 on time
+#  The whole screen also shows night brightness when the left card is on 7,
+#  and "NO HA" when it's on 9. The clock is faked to 19:42 BST.
+#
+#  Build/flash from this folder:  esphome run esp32-4in-bus-display-demo.yaml
+#  (uses the dummy secrets.yaml next to this file)
+# =============================================================================
+
+substitutions:
+  name: esp32-4in-bus-demo
+  friendly_name: 4in Bus Demo
+  # Fake "HA connected" except when the left card is on scenario 9.
+  ha_connected: "(id(demo_step) != 9)"
+
+packages:
+  base: !include ../../common/base.yaml
+  board: !include ../../boards/esp32-4in-st7796s.yaml
+  project: !include ../../projects/bus-display/bus-display-2stop-480x320.yaml
+  brightness: !include ../../projects/bus-display/brightness.yaml
+
+api:
+  encryption:
+    key: !secret demo_api_key
+
+wifi:
+  ap:
+    ssid: "4in Bus Demo"
+    password: !secret demo_fallback_password
+
+globals:
+  - id: demo_step
+    type: int
+    initial_value: "-1"
+
+interval:
+  - interval: 6s
+    then:
+      - lambda: |-
+          static bool clock_set = false;
+          if (!clock_set) {
+            struct timeval tv = { .tv_sec = 1790361720, .tv_usec = 0 };  // 2026-09-25 18:42 UTC
+            settimeofday(&tv, nullptr);
+            clock_set = true;
+          }
+          int step = (id(demo_step) + 1) % 10;
+          id(demo_step) = step;
+          auto now = id(ha_time).now();
+          int nm = now.hour * 60 + now.minute;
+          auto at = [&](int plus) {
+            char b[8]; int m = (nm + plus) % 1440;
+            snprintf(b, 8, "%02d:%02d", m / 60, m % 60);
+            return std::string(b);
+          };
+          struct Sc { const char *st, *line, *dest; int plus, delay; const char *live, *fol, *stale; bool last; };
+          static const Sc sc[10] = {
+            {"x", "S9",  "Wantage",               17,  0, "on",  "20:29 S9", "off", false},
+            {"x", "700", "Pkway & Kidlington",     8,  4, "on",  "20:13 X3", "off", false},
+            {"x", "S9",  "Wantage",                3,  9, "on",  "20:29 S9", "off", false},
+            {"x", "S9",  "Wantage",               25,  0, "off", "20:59 S9", "off", false},
+            {"x", "S9",  "Wantage",               12,  1, "on",  "",         "off", true },
+            {"x", "700", "Oxford",                 0,  0, "on",  "19:58 700","off", false},
+            {"x", "700", "Oxford",                 5, -3, "on",  "19:58 700","off", false},
+            {"unknown", "S9", "Wantage",           5,  0, "on",  "",         "off", false},
+            {"x", "S9",  "Wantage",               14,  0, "on",  "20:29 S9", "on",  false},
+            {"x", "700", "Oxford",                 4,  0, "on",  "19:58 700","off", false},
+          };
+          ESP_LOGI("demo", "left card scenario %d, right card %d", step, (step + 5) % 10);
+          id(sun_elevation).publish_state(step == 7 ? -10.0f : 30.0f);  // 7 = night brightness
+          struct Ids { text_sensor::TextSensor *state, *line, *dest, *sched, *delay, *live, *fol,
+                       *stale, *quiet, *last_t, *last_l, *first; };
+          auto feed = [&](const Ids &s, const Sc &c) {
+            s.first->publish_state("05:32");
+            s.quiet->publish_state("off");
+            s.stale->publish_state(c.stale);
+            s.line->publish_state(c.line);
+            s.dest->publish_state(c.dest);
+            s.sched->publish_state(at(c.plus));
+            s.delay->publish_state(to_string(c.delay));
+            s.live->publish_state(c.live);
+            s.fol->publish_state(c.fol);
+            s.last_t->publish_state(c.last ? at(c.plus) : "22:57");
+            s.last_l->publish_state(c.last ? c.line : "S9");
+            s.state->publish_state(c.st);
+          };
+          feed({id(s1_state), id(s1_line), id(s1_dest), id(s1_sched), id(s1_delay), id(s1_live),
+                id(s1_fol), id(s1_stale), id(s1_quiet), id(s1_last_t), id(s1_last_l), id(s1_first)},
+               sc[step]);
+          feed({id(s2_state), id(s2_line), id(s2_dest), id(s2_sched), id(s2_delay), id(s2_live),
+                id(s2_fol), id(s2_stale), id(s2_quiet), id(s2_last_t), id(s2_last_l), id(s2_first)},
+               sc[(step + 5) % 10]);

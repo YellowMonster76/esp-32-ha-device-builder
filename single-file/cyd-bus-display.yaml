@@ -7,6 +7,7 @@
 #    common/base.yaml
 #    boards/cyd-2432s028.yaml
 #    projects/bus-display/bus-display.yaml
+#    projects/bus-display/brightness.yaml
 #    cyd-bus-display.yaml
 #
 #  Secrets it needs in Device Builder's secrets.yaml:
@@ -72,10 +73,11 @@ substitutions:
   overdue_after: "2"
   gone_after: "30"
 
+  # --- from projects/bus-display/brightness.yaml ---
   # ---- Auto-brightness (follows the sun, from HA's sun.sun) -----------------
   # Sun elevation between these two angles maps linearly onto brightness.
-  # (Not the LDR: tested on this board, it can't tell a lit room from a dark
-  # one. See the LDR sensor below.)
+  # (Not a light sensor: the CYD's LDR can't tell a lit room from a dark one.
+  # See boards/cyd-2432s028.md, quirks.)
   sun_day_deg: "4"       # sun at/above this: full brightness
   sun_night_deg: "-6"    # sun at/below this (end of civil dusk): minimum
   bl_min: "0.35"         # dimmest the backlight goes (0-1). 0 = off.
@@ -184,7 +186,7 @@ touchscreen:
       mirror_x: true
     # Touch: one purpose only. Tapping anywhere turns the backlight to full for
     # ${touch_boost_s}. Because it's "tap anywhere", calibration hardly matters.
-    # (from projects/bus-display/bus-display.yaml)
+    # (from projects/bus-display/brightness.yaml)
     on_touch:
       - script.execute: touch_boost
 
@@ -237,6 +239,7 @@ light:
 #  Next departure from one bus stop, pushed from Home Assistant.
 #  Needs: a 320x240 landscape LVGL display (`tft`), touchscreen `touch`,
 #  light `backlight`. See README.md for the HA entities it reads.
+#  Include brightness.yaml (the backlight behaviour) alongside it.
 #
 #  Screen (landscape, 320x240):
 #    +--------------------------------------------+
@@ -263,102 +266,6 @@ api:
   # (from cyd-bus-display.yaml)
   encryption:
     key: !secret cyd_bus_api_key
-
-# Clock comes from HA. Timezone is set explicitly so countdowns are right
-# even before HA has sent its timezone.
-time:
-  - platform: homeassistant
-    id: ha_time
-    timezone: Europe/London
-
-sensor:
-  # Sun elevation from HA drives auto-brightness.
-  - platform: homeassistant
-    id: sun_elevation
-    entity_id: sun.sun
-    attribute: elevation
-    internal: true
-    on_value:
-      - script.execute: apply_brightness
-
-  # LDR on GPIO34 (on the back of the board). Kept for reference only;
-  # disabled in HA by default. Tested on this board on 2026-09-25: room light
-  # and full darkness both read ~0.075 V (the ADC's floor), and only a phone
-  # torch moved it (to ~0.11 V). The divider resistor makes it too insensitive
-  # for room light, so it isn't used for dimming.
-  - platform: adc
-    id: ldr
-    name: LDR
-    pin: GPIO34
-    attenuation: 0db     # most sensitive range (0 to ~1 V)
-    update_interval: 5s
-    accuracy_decimals: 3
-    unit_of_measurement: V
-    entity_category: diagnostic
-    disabled_by_default: true
-
-switch:
-  - platform: template
-    id: auto_brightness
-    name: Auto brightness
-    icon: mdi:brightness-auto
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    entity_category: config
-    on_turn_on:
-      - script.execute: apply_brightness
-    on_turn_off:
-      - script.execute: apply_brightness
-
-  # Night schedule: backlight fully off between "Screen off at" and "Screen on
-  # at" (set both from HA; they survive reboots). A tap still wakes it for
-  # ${touch_boost_s}. Set both times the same to disable without the switch.
-  - platform: template
-    id: night_off
-    name: Screen off at night
-    icon: mdi:monitor-off
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    entity_category: config
-    on_turn_on:
-      - script.execute: apply_brightness
-    on_turn_off:
-      - script.execute: apply_brightness
-
-datetime:
-  - platform: template
-    id: screen_off_at
-    type: time
-    name: Screen off at
-    icon: mdi:weather-night
-    optimistic: true
-    restore_value: true
-    initial_value: "23:00"
-    entity_category: config
-    on_value:
-      - script.execute: apply_brightness
-  - platform: template
-    id: screen_on_at
-    type: time
-    name: Screen on at
-    icon: mdi:weather-sunset-up
-    optimistic: true
-    restore_value: true
-    initial_value: "06:30"
-    entity_category: config
-    on_value:
-      - script.execute: apply_brightness
-
-globals:
-  - id: pre_boost          # backlight level before a tap, restored after it
-    type: float
-    initial_value: "0"
-  - id: slept              # true while the night schedule has it switched off
-    type: bool
-    initial_value: "false"
-  - id: boosted            # true while a screen tap has forced full brightness
-    type: bool
-    initial_value: "false"
 
 # =============================================================================
 #  Data from Home Assistant
@@ -462,78 +369,6 @@ interval:
 #  Logic
 # =============================================================================
 script:
-  # Decides the backlight, in priority order:
-  #   1. a tap is holding it at full          -> leave it
-  #   2. inside the night-off window          -> off
-  #   3. Auto brightness on                   -> follow the sun
-  #   4. Auto brightness off                  -> your manual level (only
-  #      touched when coming out of the night-off window)
-  - id: apply_brightness
-    then:
-      - lambda: |-
-          if (id(boosted)) return;
-
-          auto now = id(ha_time).now();
-          bool asleep = false;
-          if (id(night_off).state && now.is_valid()) {
-            int n   = now.hour * 60 + now.minute;
-            int off = id(screen_off_at).hour * 60 + id(screen_off_at).minute;
-            int on  = id(screen_on_at).hour * 60 + id(screen_on_at).minute;
-            asleep = off <= on ? (n >= off && n < on)     // e.g. 01:00-06:00
-                               : (n >= off || n < on);    // e.g. 23:00-06:30
-          }
-
-          auto *bl = id(backlight);
-          if (asleep) {
-            if (bl->remote_values.is_on()) {
-              auto c = bl->turn_off();
-              c.set_transition_length(3000);
-              c.perform();
-            }
-            id(slept) = true;
-            return;
-          }
-
-          if (id(auto_brightness).state && !isnan(id(sun_elevation).state)) {
-            float e = id(sun_elevation).state;
-            float t = (e - ${sun_night_deg}) / (${sun_day_deg} - ${sun_night_deg});
-            t = std::max(0.0f, std::min(1.0f, t));   // 0 = night, 1 = day
-            float b = ${bl_min} + t * (${bl_max} - ${bl_min});
-            if (!bl->remote_values.is_on() || fabsf(bl->remote_values.get_brightness() - b) > 0.01f) {
-              auto c = bl->turn_on();
-              c.set_brightness(b);
-              c.set_transition_length(3000);
-              c.perform();
-            }
-          } else if (id(slept)) {
-            // Manual mode, night window just ended: back on at the last level.
-            auto c = bl->turn_on();
-            c.set_transition_length(3000);
-            c.perform();
-          }
-          id(slept) = false;
-
-  - id: touch_boost
-    mode: restart
-    then:
-      - lambda: |-
-          if (!id(boosted)) {   // first tap, not a repeat during the boost
-            auto &v = id(backlight)->remote_values;
-            id(pre_boost) = v.is_on() ? v.get_brightness() : 0.0f;
-          }
-          id(boosted) = true;
-      - light.turn_on: {id: backlight, brightness: 100%, transition_length: 0.2s}
-      - delay: ${touch_boost_s}
-      - lambda: |-
-          id(boosted) = false;
-          // Manual mode: put back the level from before the tap.
-          if (!id(auto_brightness).state && id(pre_boost) > 0.0f) {
-            auto c = id(backlight)->turn_on();
-            c.set_brightness(id(pre_boost));
-            c.perform();
-          }
-      - script.execute: apply_brightness
-
   # Redraws every label from the current sensor values. Cheap; called on any
   # data change and every 10 s.
   - id: refresh
@@ -679,6 +514,77 @@ script:
           show(id(tag_last), is_last);
           std::string fol = id(ed_following).state;
           text(id(lbl_following), (!is_last && valid(fol)) ? "Then " + fol : "");
+  # Decides the backlight, in priority order:
+  #   1. a tap is holding it at full          -> leave it
+  #   2. inside the night-off window          -> off
+  #   3. Auto brightness on                   -> follow the sun
+  #   4. Auto brightness off                  -> your manual level (only
+  #      touched when coming out of the night-off window)
+  - id: apply_brightness
+    then:
+      - lambda: |-
+          if (id(boosted)) return;
+
+          auto now = id(ha_time).now();
+          bool asleep = false;
+          if (id(night_off).state && now.is_valid()) {
+            int n   = now.hour * 60 + now.minute;
+            int off = id(screen_off_at).hour * 60 + id(screen_off_at).minute;
+            int on  = id(screen_on_at).hour * 60 + id(screen_on_at).minute;
+            asleep = off <= on ? (n >= off && n < on)     // e.g. 01:00-06:00
+                               : (n >= off || n < on);    // e.g. 23:00-06:30
+          }
+
+          auto *bl = id(backlight);
+          if (asleep) {
+            if (bl->remote_values.is_on()) {
+              auto c = bl->turn_off();
+              c.set_transition_length(3000);
+              c.perform();
+            }
+            id(slept) = true;
+            return;
+          }
+
+          if (id(auto_brightness).state && !isnan(id(sun_elevation).state)) {
+            float e = id(sun_elevation).state;
+            float t = (e - ${sun_night_deg}) / (${sun_day_deg} - ${sun_night_deg});
+            t = std::max(0.0f, std::min(1.0f, t));   // 0 = night, 1 = day
+            float b = ${bl_min} + t * (${bl_max} - ${bl_min});
+            if (!bl->remote_values.is_on() || fabsf(bl->remote_values.get_brightness() - b) > 0.01f) {
+              auto c = bl->turn_on();
+              c.set_brightness(b);
+              c.set_transition_length(3000);
+              c.perform();
+            }
+          } else if (id(slept)) {
+            // Manual mode, night window just ended: back on at the last level.
+            auto c = bl->turn_on();
+            c.set_transition_length(3000);
+            c.perform();
+          }
+          id(slept) = false;
+
+  - id: touch_boost
+    mode: restart
+    then:
+      - lambda: |-
+          if (!id(boosted)) {   // first tap, not a repeat during the boost
+            auto &v = id(backlight)->remote_values;
+            id(pre_boost) = v.is_on() ? v.get_brightness() : 0.0f;
+          }
+          id(boosted) = true;
+      - light.turn_on: {id: backlight, brightness: 100%, transition_length: 0.2s}
+      - delay: ${touch_boost_s}
+      - lambda: |-
+          id(boosted) = false;
+          // Manual mode: put back the level from before the tap.
+          if (!id(auto_brightness).state && id(pre_boost) > 0.0f) {
+            auto c = id(backlight)->turn_on();
+            c.set_brightness(id(pre_boost));
+            c.perform();
+          }
+      - script.execute: apply_brightness
 
 # =============================================================================
 #  Fonts (Roboto from Google Fonts, fetched at compile time)
@@ -919,3 +825,95 @@ lvgl:
                   text: ""
                   text_font: font_med
                   text_color: 0x8A8A8A
+
+
+# =============================================================================
+#  Bus display: backlight behaviour, shared by every bus display layout
+#  (bus-display.yaml, bus-display-2stop-480x320.yaml). A device file
+#  includes this AND one layout.
+#    - brightness follows the sun (HA's sun.sun), or a manual level
+#    - screen off at night, between two times set in HA
+#    - tap anywhere: full brightness for a while
+#  Needs from the board: light `backlight`, touchscreen `touch`.
+#  Provides the clock `ha_time`, which the layouts use too.
+# =============================================================================
+
+# Clock comes from HA. Timezone is set explicitly so countdowns are right
+# even before HA has sent its timezone.
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: Europe/London
+
+sensor:
+  # Sun elevation from HA drives auto-brightness.
+  - platform: homeassistant
+    id: sun_elevation
+    entity_id: sun.sun
+    attribute: elevation
+    internal: true
+    on_value:
+      - script.execute: apply_brightness
+
+switch:
+  - platform: template
+    id: auto_brightness
+    name: Auto brightness
+    icon: mdi:brightness-auto
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - script.execute: apply_brightness
+    on_turn_off:
+      - script.execute: apply_brightness
+
+  # Night schedule: backlight fully off between "Screen off at" and "Screen on
+  # at" (set both from HA; they survive reboots). A tap still wakes it for
+  # ${touch_boost_s}. Set both times the same to disable without the switch.
+  - platform: template
+    id: night_off
+    name: Screen off at night
+    icon: mdi:monitor-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - script.execute: apply_brightness
+    on_turn_off:
+      - script.execute: apply_brightness
+
+datetime:
+  - platform: template
+    id: screen_off_at
+    type: time
+    name: Screen off at
+    icon: mdi:weather-night
+    optimistic: true
+    restore_value: true
+    initial_value: "23:00"
+    entity_category: config
+    on_value:
+      - script.execute: apply_brightness
+  - platform: template
+    id: screen_on_at
+    type: time
+    name: Screen on at
+    icon: mdi:weather-sunset-up
+    optimistic: true
+    restore_value: true
+    initial_value: "06:30"
+    entity_category: config
+    on_value:
+      - script.execute: apply_brightness
+
+globals:
+  - id: pre_boost          # backlight level before a tap, restored after it
+    type: float
+    initial_value: "0"
+  - id: slept              # true while the night schedule has it switched off
+    type: bool
+    initial_value: "false"
+  - id: boosted            # true while a screen tap has forced full brightness
+    type: bool
+    initial_value: "false"

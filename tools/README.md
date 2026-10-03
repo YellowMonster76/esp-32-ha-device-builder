@@ -79,7 +79,10 @@ python tools/compare_configs.py old-single-file.yaml cyd-bus-display.yaml
 ```
 
 Runs `esphome config` on both and compares the merged result as data, so
-ordering doesn't matter. "IDENTICAL" means the firmware behaves the same.
+key order doesn't matter, and list items that all have an `id` (sensors,
+scripts...) are matched by id. Moving a component to another package
+therefore isn't a difference; lists without ids, like `interval:`, still
+compare in order. "IDENTICAL" means the firmware behaves the same.
 This is how the split into board/project/device files was checked. Each file
 needs a `secrets.yaml` beside it with the same secret names (dummy values are
 fine).
@@ -113,6 +116,7 @@ plus fake data. So a demo always shows the current project, not a copy of it.
 | Demo | Shows |
 |---|---|
 | [`cyd-bus-display-demo.yaml`](demo/cyd-bus-display-demo.yaml) | Cycles 10 scenarios every 6 s: on time, late, very late, timetable-only, last bus, due, early, overnight (and night brightness), stale, HA lost |
+| [`esp32-4in-bus-display-demo.yaml`](demo/esp32-4in-bus-display-demo.yaml) | The two-stop layout on the 4" board: both cards cycle the same scenarios, 5 apart, so they always differ |
 | [`cyd-light-panel-demo.yaml`](demo/cyd-light-panel-demo.yaml) | 8 tiles that toggle locally, and every tap logged with its coordinates |
 | [`esp32-4in-light-panel-demo.yaml`](demo/esp32-4in-light-panel-demo.yaml) | The same on the 4" board: 12 tiles (4 × 3) |
 

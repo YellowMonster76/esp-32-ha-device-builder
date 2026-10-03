@@ -1,11 +1,27 @@
 # Project: bus display
 
-[`bus-display.yaml`](bus-display.yaml): the next departure from one bus stop,
-readable from about 2 m, with data pushed from Home Assistant over the native
-API.
+The next bus from a stop, readable from about 2 m, with data pushed from Home
+Assistant over the native API. A device includes **one layout plus
+`brightness.yaml`**:
 
-**Needs from the board:** a 320×240 landscape LVGL display `tft`, touchscreen
-`touch`, light `backlight`. Used by [`cyd-bus-display`](../../cyd-bus-display.yaml).
+| File | What | Screen | Used by |
+|---|---|---|---|
+| [`bus-display.yaml`](bus-display.yaml) | layout: one stop | 320×240 landscape (CYD) | [`cyd-bus-display`](../../cyd-bus-display.yaml) |
+| [`bus-display-2stop-480x320.yaml`](bus-display-2stop-480x320.yaml) | layout: two stops side by side | 480×320 landscape (4" ST7796S) | [`esp32-4in-bus-display-2stop`](../../esp32-4in-bus-display-2stop.yaml) (placeholder stops) |
+| [`brightness.yaml`](brightness.yaml) | backlight behaviour, shared | any | both |
+
+**Needs from the board:** an LVGL display `tft` of that size, touchscreen
+`touch`, light `backlight`.
+
+```yaml
+packages:
+  base: !include common/base.yaml
+  board: !include boards/cyd-2432s028.yaml
+  project: !include projects/bus-display/bus-display.yaml
+  brightness: !include projects/bus-display/brightness.yaml
+```
+
+The single-stop screen:
 
 ```
 +--------------------------------------------+
@@ -85,8 +101,47 @@ Things that tripped us up:
 | `bl_min` / `bl_max` | 0.35 / 1.0 | brightness range (0–1) |
 | `touch_boost_s` | 30s | how long a tap brightens the screen |
 
-The stop's entity IDs are currently fixed in the project file (High Street).
-To reuse it for another stop, turn them into substitutions.
+The single-stop layout's entity IDs are fixed in the project file (High
+Street). The two-stop layout takes them as substitutions (below).
+
+## Two stops (480×320)
+
+```
++-----------------------+-----------------------+
+| o NO HA                                 19:42 |  connection + clock
+| HIGH STREET           | MARKET SQUARE         |  stop names
+|  17         +------+  |   4         +------+  |
+|             |  S9  |  |             | 700  |  |  minutes to go, route
+|  min        +------+  |  min          STALE   |  feed warning
+|  19:59   [ On time ]  |  19:46  [2 min late]  |  expected time, lateness
+|  to Wantage           |  to Oxford            |
+|  Then 20:29 S9        |  Then 19:58 700       |  following / LAST BUS
++-----------------------+-----------------------+
+```
+
+Each card follows the same rules as the single-stop screen. **STALE** shows
+under the route badge of the card whose feed is stale; **NO HA** shows once,
+in the top bar.
+
+Set each stop in the device file (`s1_` left card, `s2_` right card):
+
+| Substitution | Entity | Provides |
+|---|---|---|
+| `sN_title` | | card heading (about 13 characters fit) |
+| `sN_next` | e.g. `sensor.bus_next_high_street` | state + `line`, `destination`, `scheduled`, `delay`, `live`, `following` |
+| `sN_feed` | e.g. `sensor.bus_oxontime_high_street` | `stale`, `quiet` |
+| `sN_last` | e.g. `sensor.bus_last_high_street` | state `HH:MM` + `line` |
+| `sN_first` | e.g. `sensor.bus_first_high_street` | state `HH:MM` (optional) |
+
+Two stops can share an entity (for example one `sensor.bus_last_departure`)
+if that's what HA has.
+
+### Tested
+
+On the 4" board with the demo build
+([`esp32-4in-bus-display-demo.yaml`](../../tools/demo/esp32-4in-bus-display-demo.yaml)),
+which cycles both cards through every state. **Not yet run with HA**: the
+device file's stops are placeholders.
 
 ## Open questions for the HA side
 

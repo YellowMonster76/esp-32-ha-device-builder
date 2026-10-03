@@ -1,7 +1,9 @@
 """Compare two ESPHome configs by their fully merged result.
 
-Runs `esphome config` on both and compares the output as data, so ordering
-doesn't matter. Use it after a refactor (e.g. splitting a single-file config
+Runs `esphome config` on both and compares the output as data, so key order
+doesn't matter, and list items that all have an `id` are matched by id (so
+moving a sensor or script to another package isn't a difference). Lists
+without ids, like `interval:`, are compared in order. Use it after a refactor (e.g. splitting a single-file config
 into board/project/device packages): no differences means the firmware
 behaves the same.
 
@@ -48,6 +50,14 @@ def merged(path):
     return data
 
 
+def ids(items):
+    """{id: item} if every item is a mapping with a unique id, else None."""
+    if not items or not all(isinstance(x, dict) and "id" in x for x in items):
+        return None
+    keyed = {f"id={x['id']}": x for x in items}
+    return keyed if len(keyed) == len(items) else None
+
+
 def walk(a, b, path="", diffs=None):
     diffs = [] if diffs is None else diffs
     if isinstance(a, dict) and isinstance(b, dict):
@@ -58,6 +68,11 @@ def walk(a, b, path="", diffs=None):
                 diffs.append(f"- {path}/{k}: {a[k]!r}")
             else:
                 walk(a[k], b[k], f"{path}/{k}", diffs)
+    elif isinstance(a, list) and isinstance(b, list) and ids(a) and ids(b):
+        # Every item has an id (scripts, sensors...): match them by id, so
+        # moving a component to another package (which changes the merged
+        # order) doesn't count as a difference.
+        walk(ids(a), ids(b), path, diffs)
     elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
         for i, (x, y) in enumerate(zip(a, b)):
             walk(x, y, f"{path}[{i}]", diffs)

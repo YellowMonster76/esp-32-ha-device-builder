@@ -276,6 +276,11 @@ text_sensor:
 
 sensor:
   - platform: homeassistant
+    id: sp1_feat
+    entity_id: ${sp1_entity}
+    attribute: supported_features
+    internal: true
+  - platform: homeassistant
     id: sp1_vol
     entity_id: ${sp1_entity}
     attribute: volume_level
@@ -286,6 +291,11 @@ sensor:
             lambda: 'return id(sel) == 0;'
           then:
             - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp2_feat
+    entity_id: ${sp2_entity}
+    attribute: supported_features
+    internal: true
   - platform: homeassistant
     id: sp2_vol
     entity_id: ${sp2_entity}
@@ -298,6 +308,11 @@ sensor:
           then:
             - script.execute: show_now_playing
   - platform: homeassistant
+    id: sp3_feat
+    entity_id: ${sp3_entity}
+    attribute: supported_features
+    internal: true
+  - platform: homeassistant
     id: sp3_vol
     entity_id: ${sp3_entity}
     attribute: volume_level
@@ -309,6 +324,11 @@ sensor:
           then:
             - script.execute: show_now_playing
   - platform: homeassistant
+    id: sp4_feat
+    entity_id: ${sp4_entity}
+    attribute: supported_features
+    internal: true
+  - platform: homeassistant
     id: sp4_vol
     entity_id: ${sp4_entity}
     attribute: volume_level
@@ -319,6 +339,11 @@ sensor:
             lambda: 'return id(sel) == 3;'
           then:
             - script.execute: show_now_playing
+  - platform: homeassistant
+    id: sp5_feat
+    entity_id: ${sp5_entity}
+    attribute: supported_features
+    internal: true
   - platform: homeassistant
     id: sp5_vol
     entity_id: ${sp5_entity}
@@ -560,6 +585,26 @@ script:
           bool ok = ${ha_connected};   // from common/base.yaml
           if (ok) lv_obj_add_flag(id(banner_offline), LV_OBJ_FLAG_HIDDEN);
           else lv_obj_remove_flag(id(banner_offline), LV_OBJ_FLAG_HIDDEN);
+
+  # Stop. A Music Assistant group (e.g. a Google speaker group) that is only
+  # stopped stays switched on, and MA then plays anything sent to one of its
+  # members on the whole group. So players that can be switched off (groups)
+  # are switched off; the rest (single speakers can't be) are just stopped.
+  - id: stop_player
+    then:
+      - script.execute:
+          id: send_media
+          what: !lambda |-
+            auto feat = [](int i) -> sensor::Sensor * { switch (i) {
+            case 0: return id(sp1_feat);
+            case 1: return id(sp2_feat);
+            case 2: return id(sp3_feat);
+            case 3: return id(sp4_feat);
+            case 4: return id(sp5_feat);
+              } return nullptr; };
+            float f = feat(id(sel))->state;
+            bool can_turn_off = !isnan(f) && (((uint32_t) f) & 256);   // MediaPlayerEntityFeature.TURN_OFF
+            return std::string(can_turn_off ? "turn_off" : "media_stop");
 
   # Transport buttons act on the chosen speaker.
   - id: send_media
@@ -875,7 +920,7 @@ lvgl:
                   width: 46
                   height: 50
                   on_click:
-                    - script.execute: {id: send_media, what: media_stop}
+                    - script.execute: stop_player
                   widgets:
                     - label: {align: CENTER, text_font: font_icons, text: "\U000F04DB"}
               - button:

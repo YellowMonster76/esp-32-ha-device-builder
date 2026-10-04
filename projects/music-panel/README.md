@@ -39,8 +39,13 @@ calibrated touchscreen `touch`, light `backlight`. Used by
   `enqueue: replace`.
 - **Now playing** reads the chosen speaker's state, `media_title`,
   `media_artist` and `volume_level`. Transport buttons call
-  `media_player.media_previous_track` / `media_play_pause` / `media_stop` /
+  `media_player.media_previous_track` / `media_play_pause` /
   `media_next_track`.
+- **Stop** switches **groups** off (`media_player.turn_off`) and just stops
+  **single speakers** (`media_stop`). A Music Assistant group that is only
+  stopped stays switched on, and MA then plays anything sent to one of its
+  members on the whole group. Single cast speakers can't be switched off, so
+  the panel checks each player's `supported_features` (TURN_OFF) to decide.
 - **Volume:** the bar's volume button shows the level and opens a panel with
   a long slider (sent when you let go) and big −/+ buttons (5% steps, easier
   on resistive touch). It closes 6 s after the last touch, or with Done. A
@@ -72,6 +77,22 @@ There are exactly five speaker buttons. For a different number, change the
 
 ## Things that tripped us up
 
+- **A group that's only stopped captures its members.** With the Downstairs
+  group stopped (not off), playing on the Utility Room speaker (a member)
+  played on the whole group again. Hence stop = off for groups.
+- **MA *sync groups* of Google cast speakers played on one speaker only.** A
+  native Google speaker group (made in the Google Home app, then used through
+  its Music Assistant player) plays on all of them.
+- **Albums failed on Google speakers** while radio worked: HA logged "Failed
+  to cast media http://<MA host>:8097/…flac … make sure the URL is reachable
+  from the cast device". The panel's request was correct (MA queued the
+  album); the stream from MA to the speaker failed. Not solved yet; worth
+  trying: MP3 as the speaker's output codec in MA, and checking the speakers
+  can reach MA's stream server.
+- **Check what an entity really is.** "Living Room" was the Apple TV; the
+  Google speaker was "Living Room speaker". Look at the device's model before
+  wiring a button.
+
 - **LVGL labels only cut off with "…" at a fixed height.** Without one, a
   long album name wrapped onto the artist line.
 - **A flex layout can't be declared on an empty container** in ESPHome's
@@ -90,6 +111,8 @@ There are exactly five speaker buttons. For a different number, change the
   rechecked on the board.
 - **Live with HA** (2026-10-04): favourites load from MA through
   `capture_response`, tapping one plays it on the chosen speaker, and
-  pause/play, stop and the volume panel work. Speaker entities were checked
+  pause/play, stop (single speakers and a Google group) and the volume panel
+  work. Album playback on Google speakers fails on the MA side (see above).
+  Speaker entities were checked
   against their devices first: an HA name like "Living Room" can belong to
   the TV rather than the speaker you meant.

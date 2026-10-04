@@ -3,7 +3,8 @@
 [`music-panel.yaml`](music-panel.yaml): choose a speaker or group, choose one
 of your **Music Assistant favourites** (radio, playlists, albums), and it
 plays there. The bar at the bottom shows what's playing on the chosen
-speaker, with previous / play-pause / stop / next and a volume button that
+speaker, with previous / play-pause / stop / next, an **announce** button
+(hold it: e.g. "Dinner's ready!" in every room) and a volume button that
 opens a large volume panel.
 
 **Needs from the board:** a 480×320 landscape LVGL display `tft`, a
@@ -19,8 +20,8 @@ calibrated touchscreen `touch`, light `backlight`. Used by
 | | BBC Radio 6 Music  | | I Should Coco     | |  your MA favourites,
 | |                    | | Supergrass        | |  two columns, scrolls
 | +--------------------+ +-------------------+ |
-| Song title     |<< >|| [] >>|  [vol 35%]   |  now playing; the volume
-| Artist                                       |  button opens a big panel
+| Song title   |<< >|| [] >>| [plate] [vol] |  now playing; hold the
+| Artist                                       |  plate to announce
 +----------------------------------------------+
 ```
 
@@ -50,6 +51,10 @@ calibrated touchscreen `touch`, light `backlight`. Used by
   a long slider (sent when you let go) and big −/+ buttons (5% steps, easier
   on resistive touch). It closes 6 s after the last touch, or with Done. A
   slider squeezed into the bar was too small to use.
+- **Announce:** hold the plate button (a short tap just shows "Hold to
+  announce"). It runs the HA script in `announce_script`, lights up while
+  it's sent, and ignores repeat presses for 10 s. The script decides what's
+  said and where; see "Announcement script" below.
 - **Screen off** after "Screen timeout" (number in HA, default 60 s); the
   first tap only wakes it, as on the light panel.
 - No album art: without PSRAM there's no room for images.
@@ -63,6 +68,36 @@ calibrated touchscreen `touch`, light `backlight`. Used by
   **Configure**, and tick **"Allow the device to perform Home Assistant
   actions"**. Without it, nothing loads or plays.
 
+## Announcement script (HA side)
+
+An example `script.announce_dinner` (Settings → Automations & scenes →
+Scripts, YAML mode). Put the sound in `config/www/` (HA serves it at
+`/local/...`); a TTS clip made once works well.
+
+```yaml
+alias: Announce dinner
+icon: mdi:silverware-fork-knife
+mode: single
+sequence:
+  - action: music_assistant.play_announcement
+    target:
+      entity_id:          # every speaker, one by one (see below)
+        - media_player.kitchen
+        - media_player.living_room
+        - media_player.office
+    data:
+      url: https://<your HA address>/local/dinner_ready.mp3
+      use_pre_announce: true    # MA's chime first
+      announce_volume: 60
+```
+
+**List the speakers one by one, not a Google speaker group.** Announced to
+a Google group (through its MA player) every room heard it in sync, but a
+speaker that had been playing on its own did **not** resume afterwards.
+Announced to the speakers individually, each one resumed what it was playing
+(about 6 s later); they're just not perfectly in sync. Keep a second script
+with a test message for trying changes, so nobody thinks dinner's ready.
+
 ## Settings (device file)
 
 | Substitution | Meaning |
@@ -71,6 +106,7 @@ calibrated touchscreen `touch`, light `backlight`. Used by
 | `sp1_name` … `sp5_name` | button labels; they wrap onto two lines (about 11 characters each) |
 | `sp1_entity` … `sp5_entity` | any MA `media_player`, including MA groups |
 | `fav_limit` | most favourites per tab (default 30) |
+| `announce_script` | script the plate button runs (default `script.announce_dinner`) |
 
 There are exactly five speaker buttons. For a different number, change the
 `spN` blocks (buttons, sensors) and the lists of five in the scripts.
@@ -111,8 +147,8 @@ There are exactly five speaker buttons. For a different number, change the
   rechecked on the board.
 - **Live with HA** (2026-10-04): favourites load from MA through
   `capture_response`, tapping one plays it on the chosen speaker, and
-  pause/play, stop (single speakers and a Google group) and the volume panel
-  work. Album playback on Google speakers fails on the MA side (see above).
+  pause/play, stop (single speakers and a Google group), the volume panel
+  and the hold-to-announce button (9 speakers, music resumed) work. Album playback on Google speakers fails on the MA side (see above).
   Speaker entities were checked
   against their devices first: an HA name like "Living Room" can belong to
   the TV rather than the speaker you meant.

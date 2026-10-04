@@ -59,6 +59,9 @@ substitutions:
   # library", pick your instance, switch to YAML mode: config_entry_id.
   ma_config_entry: "YOUR_MA_CONFIG_ENTRY_ID"  # set in esp32-4in-music-panel.yaml
   fav_limit: "30"            # most favourites loaded per tab
+  # Script the plate button runs (hold to send). Make it in HA, e.g. a
+  # music_assistant.play_announcement on your speakers.
+  announce_script: script.announce_dinner
 
   # ---- The five speaker buttons (any MA player, including MA groups) --------
   # Names wrap onto two lines; about 11 characters fit per line.
@@ -245,7 +248,8 @@ light:
 #    | | BBC Radio 6 Music  | | I Should Coco     | |  your MA favourites,
 #    | |                    | | Supergrass        | |  fetched live (scrolls)
 #    | +--------------------+ +-------------------+ |
-#    | Song title     |<< >|| [] >>|  [vol 35%]   |  now playing; the volume
+#    | Song title   |<< >|| [] >>| [plate] [vol] |  now playing; plate = hold
+#    |                                              |  to announce; the volume
 #    |                                              |  button opens a big panel
 #    | Artist                                       |
 #    +----------------------------------------------+
@@ -796,6 +800,22 @@ script:
             bool can_turn_off = !isnan(f) && (((uint32_t) f) & 256);   // MediaPlayerEntityFeature.TURN_OFF
             return std::string(can_turn_off ? "turn_off" : "media_stop");
 
+  # Run the announcement script in HA (it chooses the speakers, sound and
+  # volume). The button stays lit while it's sent; mode single + the delay
+  # means extra presses within 10 s are ignored.
+  - id: announce
+    mode: single
+    then:
+      - lvgl.widget.update: {id: btn_announce, state: {checked: true}}
+      - logger.log: {format: "Announce: ${announce_script}", level: INFO}
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${announce_script}
+      - delay: 4s
+      - lvgl.widget.update: {id: btn_announce, state: {checked: false}}
+      - delay: 6s
+
   # Transport buttons act on the chosen speaker.
   - id: send_media
     parameters:
@@ -846,6 +866,7 @@ font:
       - "\U000F057E"   # volume-high
       - "\U000F075E"   # volume-minus
       - "\U000F075D"   # volume-plus
+      - "\U000F0A70"   # silverware-fork-knife (announce)
 
 # =============================================================================
 #  Layout (LVGL)
@@ -1067,7 +1088,7 @@ lvgl:
                   id: np_title
                   x: 8
                   y: 8
-                  width: 164
+                  width: 128
                   height: 25         # one line; fixed height makes DOT truncate
                   long_mode: DOT
                   text: ""
@@ -1077,7 +1098,7 @@ lvgl:
                   id: np_artist
                   x: 8
                   y: 36
-                  width: 164
+                  width: 128
                   height: 22
                   long_mode: DOT
                   text: ""
@@ -1085,9 +1106,9 @@ lvgl:
               # previous, play/pause, stop, next
               - button:
                   styles: chip
-                  x: 176
+                  x: 140
                   y: 8
-                  width: 46
+                  width: 44
                   height: 50
                   on_click:
                     - script.execute: {id: send_media, what: media_previous_track}
@@ -1095,9 +1116,9 @@ lvgl:
                     - label: {align: CENTER, text_font: font_icons, text: "\U000F04AE"}
               - button:
                   styles: chip
-                  x: 226
+                  x: 188
                   y: 8
-                  width: 54
+                  width: 50
                   height: 50
                   on_click:
                     - script.execute: {id: send_media, what: media_play_pause}
@@ -1105,9 +1126,9 @@ lvgl:
                     - label: {id: lbl_playpause, align: CENTER, text_font: font_icons, text: "\U000F040A"}
               - button:
                   styles: chip
-                  x: 284
+                  x: 242
                   y: 8
-                  width: 46
+                  width: 44
                   height: 50
                   on_click:
                     - script.execute: stop_player
@@ -1115,27 +1136,47 @@ lvgl:
                     - label: {align: CENTER, text_font: font_icons, text: "\U000F04DB"}
               - button:
                   styles: chip
-                  x: 334
+                  x: 290
                   y: 8
-                  width: 46
+                  width: 44
                   height: 50
                   on_click:
                     - script.execute: {id: send_media, what: media_next_track}
                   widgets:
                     - label: {align: CENTER, text_font: font_icons, text: "\U000F04AD"}
+              # announce (e.g. "Dinner's ready!"): hold to send, so a brush
+              # or a quick tap can't set it off
+              - button:
+                  id: btn_announce
+                  styles: chip
+                  x: 338
+                  y: 8
+                  width: 50
+                  height: 50
+                  checked:
+                    bg_color: 0xF59E0B
+                    text_color: 0x1A1A1A
+                  on_short_click:
+                    - lvgl.label.update: {id: np_artist, text: "Hold to announce"}
+                    - delay: 2s
+                    - script.execute: show_now_playing
+                  on_long_press:
+                    - script.execute: announce
+                  widgets:
+                    - label: {align: CENTER, text_font: font_icons, text: "\U000F0A70"}
               # volume: shows the level, opens the big volume panel
               - button:
                   styles: chip
-                  x: 386
+                  x: 392
                   y: 8
-                  width: 88
+                  width: 84
                   height: 50
                   on_click:
                     - lvgl.widget.show: vol_panel
                     - script.execute: vol_panel_timeout
                   widgets:
                     - label: {align: LEFT_MID, x: 4, text_font: font_icons, text: "\U000F057E"}
-                    - label: {id: vol_pct, align: RIGHT_MID, x: -6, text: "--"}
+                    - label: {id: vol_pct, align: RIGHT_MID, x: -4, text: "--"}
         # ---------- volume panel (opened from the volume button) ----------
         - obj:
             id: vol_panel

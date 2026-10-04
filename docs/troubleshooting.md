@@ -20,6 +20,8 @@ are in each board's notes (e.g. [CYD](../boards/cyd-2432s028.md)).
 |---|---|
 | Device Builder says **Online** but the device shows "NO HA" or a "not connected" banner | "Online" only means it's on the network. Pair it: **Settings → Devices & services → Discovered → Configure**, and paste the API key from `secrets.yaml` if asked. |
 | Music Assistant: playing on one speaker plays on a whole group | The speaker belongs to a group that's stopped but still **on**. Switch the group off (`media_player.turn_off`), not just stop it. |
+| Music Assistant: after an announcement, music doesn't resume | Announcing to a Google speaker group takes the speakers over. Target the speakers individually in `play_announcement`; each then resumes. |
+| A speaker "missing" from HA's view of a group | Some cast devices (an Onkyo here) don't report `playing` to HA. Check group members in the Google Home app, not from HA state changes. |
 | Music Assistant: a sync group of Google speakers plays on one only | Use a native Google speaker group (Google Home app) through its MA player instead. |
 | Music Assistant: radio plays, albums don't ("Failed to cast media http://…:8097/…flac") | MA ↔ cast speaker stream problem, not the ESPHome device. Try MP3 output codec for the speaker in MA; check the speaker can reach MA's stream server. |
 | Entity states show, but **taps/actions do nothing** | Tick **"Allow the device to perform Home Assistant actions"** in the device's ESPHome integration options. |
